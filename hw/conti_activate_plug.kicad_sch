@@ -492,6 +492,183 @@
 			)
 			(embedded_fonts no)
 		)
+		(symbol "Device:C_Polarized"
+			(pin_numbers
+				(hide yes)
+			)
+			(pin_names
+				(offset 0.254)
+			)
+			(exclude_from_sim no)
+			(in_bom yes)
+			(on_board yes)
+			(in_pos_files yes)
+			(duplicate_pin_numbers_are_jumpers no)
+			(property "Reference" "C"
+				(at 0.635 2.54 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify left)
+				)
+			)
+			(property "Value" "C_Polarized"
+				(at 0.635 -2.54 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify left)
+				)
+			)
+			(property "Footprint" ""
+				(at 0.9652 -3.81 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Datasheet" ""
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Description" "Polarized capacitor"
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "ki_keywords" "cap capacitor"
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "ki_fp_filters" "CP_*"
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(symbol "C_Polarized_0_1"
+				(rectangle
+					(start -2.286 0.508)
+					(end 2.286 1.016)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy -1.778 2.286) (xy -0.762 2.286)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy -1.27 2.794) (xy -1.27 1.778)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(rectangle
+					(start 2.286 -0.508)
+					(end -2.286 -1.016)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type outline)
+					)
+				)
+			)
+			(symbol "C_Polarized_1_1"
+				(pin passive line
+					(at 0 3.81 270)
+					(length 2.794)
+					(name ""
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at 0 -3.81 90)
+					(length 2.794)
+					(name ""
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "2"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+			)
+			(embedded_fonts no)
+		)
 		(symbol "Device:C_Small"
 			(pin_numbers
 				(hide yes)
@@ -3181,6 +3358,26 @@
 			(embedded_fonts no)
 		)
 	)
+	(text "Versorgung über\n- 12Vout (normal)\n- Bat+\n- Vext\n- Wakeup (Experiment)"
+		(exclude_from_sim no)
+		(at 40.132 105.664 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "b8991785-ce1d-479c-b48c-c068f0108466")
+	)
+	(text "Experiment: Wakeup auf 12V ziehen,\nwenn über BAT+ versorgt\n(Tiefschlaf-Aufwachen)\n- Alternative:\n200 kOhm von BAT+ nach Wakeup\nlöten, WAKEUP_PD_12 schalten."
+		(exclude_from_sim no)
+		(at 144.272 152.908 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "f7895299-92fc-49a6-abc1-e7800610c6d0")
+	)
 	(junction
 		(at 62.23 128.27)
 		(diameter 0)
@@ -3242,6 +3439,12 @@
 		(uuid "655646a7-6764-46a4-a394-38f2446b5e5b")
 	)
 	(junction
+		(at 39.37 128.27)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "68e08be5-64d9-4cac-a865-8d5ac494db47")
+	)
+	(junction
 		(at 157.48 40.64)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -3260,6 +3463,12 @@
 		(uuid "83160cd9-d268-4393-9461-095a1530338f")
 	)
 	(junction
+		(at 46.99 133.35)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "84bb1740-eaeb-423b-a3cc-8fededba0574")
+	)
+	(junction
 		(at 115.57 152.4)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -3276,6 +3485,12 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "8d8ead6c-a6fe-4ace-85ab-8a9b87ebbb68")
+	)
+	(junction
+		(at 38.1 128.27)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "924594c8-5e68-4777-a05f-b92c3f038aba")
 	)
 	(junction
 		(at 157.48 66.04)
@@ -3399,16 +3614,6 @@
 	)
 	(wire
 		(pts
-			(xy 152.4 53.34) (xy 157.48 53.34)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "1229f867-10eb-45a0-a5b5-13c66ccd523a")
-	)
-	(wire
-		(pts
 			(xy 87.63 167.64) (xy 87.63 168.91)
 		)
 		(stroke
@@ -3499,13 +3704,23 @@
 	)
 	(wire
 		(pts
-			(xy 38.1 128.27) (xy 46.99 128.27)
+			(xy 38.1 128.27) (xy 39.37 128.27)
 		)
 		(stroke
 			(width 0)
 			(type default)
 		)
 		(uuid "278fcee8-929a-41db-b029-1461ecd345cc")
+	)
+	(wire
+		(pts
+			(xy 29.21 127) (xy 29.21 128.27)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "2e07f4bc-b233-4f0f-9f0c-a3a17f168751")
 	)
 	(wire
 		(pts
@@ -3639,6 +3854,16 @@
 	)
 	(wire
 		(pts
+			(xy 29.21 128.27) (xy 38.1 128.27)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "56d73ccc-6dff-4b02-8bc2-46c3f51bd65f")
+	)
+	(wire
+		(pts
 			(xy 85.09 152.4) (xy 85.09 157.48)
 		)
 		(stroke
@@ -3729,6 +3954,16 @@
 	)
 	(wire
 		(pts
+			(xy 142.24 53.34) (xy 157.48 53.34)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "78b4d456-56f4-4637-8fe5-3443269b0f4c")
+	)
+	(wire
+		(pts
 			(xy 157.48 63.5) (xy 157.48 66.04)
 		)
 		(stroke
@@ -3736,6 +3971,26 @@
 			(type default)
 		)
 		(uuid "7ab6e2bd-a3ec-40e8-a206-97bfed993692")
+	)
+	(wire
+		(pts
+			(xy 39.37 135.89) (xy 46.99 135.89)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "7bf0083b-36b3-4ba8-bc54-4c9c0337480b")
+	)
+	(wire
+		(pts
+			(xy 142.24 46.99) (xy 157.48 46.99)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "7c99f333-d607-432b-8e97-7f60c677deee")
 	)
 	(wire
 		(pts
@@ -3779,6 +4034,16 @@
 	)
 	(wire
 		(pts
+			(xy 26.67 119.38) (xy 26.67 120.65)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "84d4d8be-1f7d-45c9-a82f-a92a4d2591fb")
+	)
+	(wire
+		(pts
 			(xy 123.19 142.24) (xy 124.46 142.24)
 		)
 		(stroke
@@ -3796,6 +4061,16 @@
 			(type default)
 		)
 		(uuid "8933af32-e2bf-4dcc-b2cd-8cf5ab066c75")
+	)
+	(wire
+		(pts
+			(xy 142.24 53.34) (xy 142.24 52.07)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "8c750243-f480-4da7-8d10-5cdbb6563f96")
 	)
 	(wire
 		(pts
@@ -3979,6 +4254,16 @@
 	)
 	(wire
 		(pts
+			(xy 39.37 128.27) (xy 46.99 128.27)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "c2ec17f3-404d-4f41-b119-a50756bdca5a")
+	)
+	(wire
+		(pts
 			(xy 157.48 38.1) (xy 157.48 40.64)
 		)
 		(stroke
@@ -4009,6 +4294,16 @@
 	)
 	(wire
 		(pts
+			(xy 46.99 135.89) (xy 46.99 133.35)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "df45c240-d8e5-4ac3-8eff-3b868fd0730b")
+	)
+	(wire
+		(pts
 			(xy 73.66 45.72) (xy 73.66 46.99)
 		)
 		(stroke
@@ -4016,16 +4311,6 @@
 			(type default)
 		)
 		(uuid "e46f3054-b735-4dd6-a391-33e81258aad1")
-	)
-	(wire
-		(pts
-			(xy 152.4 46.99) (xy 157.48 46.99)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "f224fff2-8f2e-4c91-88de-3347533a570d")
 	)
 	(wire
 		(pts
@@ -4461,6 +4746,88 @@
 		)
 	)
 	(symbol
+		(lib_id "Device:R_Small")
+		(at 142.24 49.53 180)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "0366c94e-a2ac-4fbf-9e0e-a56ff688b126")
+		(property "Reference" "R9"
+			(at 144.78 48.2599 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.016 1.016)
+				)
+				(justify right)
+			)
+		)
+		(property "Value" "120"
+			(at 144.78 50.7999 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 142.24 49.53 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 142.24 49.53 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Resistor, small symbol"
+			(at 142.24 49.53 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "0b43f36e-3496-4d6c-8b09-d843a63c3135")
+		)
+		(pin "2"
+			(uuid "6d4f4f31-a7fa-47c2-8421-ffd996d556b2")
+		)
+		(instances
+			(project "conti_activate_plug"
+				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
+					(reference "R9")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "power:GND")
 		(at 123.19 173.99 0)
 		(unit 1)
@@ -4533,6 +4900,110 @@
 			(project "conti_activate_plug"
 				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
 					(reference "#PWR011")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Diode:US1A")
+		(at 29.21 123.19 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp yes)
+		(fields_autoplaced yes)
+		(uuid "05e846ff-2fe6-424b-b098-701b0fd24a72")
+		(property "Reference" "D9"
+			(at 31.75 121.9199 90)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Value" "S1A"
+			(at 31.75 124.4599 90)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Footprint" "Diode_SMD:D_SMA"
+			(at 33.655 123.19 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" "https://www.diodes.com/assets/Datasheets/ds16008.pdf"
+			(at 29.21 123.19 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "50V, 1A, General Purpose Rectifier Diode, SMA(DO-214AC)"
+			(at 29.21 123.19 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Sim.Device" "D"
+			(at 29.21 123.19 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Sim.Pins" "1=K 2=A"
+			(at 29.21 123.19 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "638581fb-e21f-4be3-a2cf-f96be02ce590")
+		)
+		(pin "2"
+			(uuid "da92ab72-8223-4fcb-95cd-76865648ff80")
+		)
+		(instances
+			(project "conti_activate_plug"
+				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
+					(reference "D9")
 					(unit 1)
 				)
 			)
@@ -5293,7 +5764,7 @@
 		)
 	)
 	(symbol
-		(lib_id "Diode:US1A")
+		(lib_id "Diode:1N4148W")
 		(at 38.1 123.19 90)
 		(unit 1)
 		(body_style 1)
@@ -5315,7 +5786,7 @@
 				(justify right)
 			)
 		)
-		(property "Value" "S1A"
+		(property "Value" "1N4148W"
 			(at 40.64 124.4599 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5326,7 +5797,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "Diode_SMD:D_SMA"
+		(property "Footprint" "Diode_SMD:D_SOD-123"
 			(at 42.545 123.19 0)
 			(hide yes)
 			(show_name no)
@@ -5337,7 +5808,7 @@
 				)
 			)
 		)
-		(property "Datasheet" "https://www.diodes.com/assets/Datasheets/ds16008.pdf"
+		(property "Datasheet" "https://www.vishay.com/docs/85748/1n4148w.pdf"
 			(at 38.1 123.19 0)
 			(hide yes)
 			(show_name no)
@@ -5348,7 +5819,7 @@
 				)
 			)
 		)
-		(property "Description" "50V, 1A, General Purpose Rectifier Diode, SMA(DO-214AC)"
+		(property "Description" "75V 0.15A Fast Switching Diode, SOD-123"
 			(at 38.1 123.19 0)
 			(hide yes)
 			(show_name no)
@@ -5993,6 +6464,88 @@
 		)
 	)
 	(symbol
+		(lib_id "Connector:Conn_01x02_Socket")
+		(at 26.67 114.3 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp yes)
+		(fields_autoplaced yes)
+		(uuid "4883e03a-a80c-448e-aa83-7478205fa314")
+		(property "Reference" "J8"
+			(at 30.48 113.6649 90)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Value" "Vext"
+			(at 30.48 116.2049 90)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+			(at 26.67 114.3 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 26.67 114.3 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Generic connector, single row, 01x02, script generated"
+			(at 26.67 114.3 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "2"
+			(uuid "4f1d4d00-4e06-4c5c-bb6f-9921ee12078b")
+		)
+		(pin "1"
+			(uuid "6e4f6bf4-5a91-4998-879a-4b55e9a87c01")
+		)
+		(instances
+			(project "conti_activate_plug"
+				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
+					(reference "J8")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Device:R_Small")
 		(at 123.19 144.78 0)
 		(unit 1)
@@ -6545,6 +7098,88 @@
 			(project "conti_activate_plug"
 				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
 					(reference "R3")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:C_Polarized")
+		(at 39.37 132.08 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp yes)
+		(fields_autoplaced yes)
+		(uuid "6e6a63be-6131-4aba-8321-79c4244c7f19")
+		(property "Reference" "C7"
+			(at 43.18 129.9209 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "100µF"
+			(at 43.18 132.4609 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Capacitor_THT:CP_Radial_Tantal_D8.0mm_P5.00mm"
+			(at 40.3352 135.89 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 39.37 132.08 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Polarized capacitor"
+			(at 39.37 132.08 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "2"
+			(uuid "ad2cd93f-f8e6-4a6d-97e9-b7adb12e7c11")
+		)
+		(pin "1"
+			(uuid "fabd210c-f2ab-4a9f-bcf9-d97530b7e143")
+		)
+		(instances
+			(project "conti_activate_plug"
+				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
+					(reference "C7")
 					(unit 1)
 				)
 			)
@@ -7423,7 +8058,7 @@
 		)
 	)
 	(symbol
-		(lib_id "Diode:US1A")
+		(lib_id "Diode:1N4148W")
 		(at 55.88 123.19 90)
 		(unit 1)
 		(body_style 1)
@@ -7445,7 +8080,7 @@
 				(justify right)
 			)
 		)
-		(property "Value" "S1A"
+		(property "Value" "1N4148W"
 			(at 58.42 124.4599 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -7456,7 +8091,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "Diode_SMD:D_SMA"
+		(property "Footprint" "Diode_SMD:D_SOD-123"
 			(at 60.325 123.19 0)
 			(hide yes)
 			(show_name no)
@@ -7467,7 +8102,7 @@
 				)
 			)
 		)
-		(property "Datasheet" "https://www.diodes.com/assets/Datasheets/ds16008.pdf"
+		(property "Datasheet" "https://www.vishay.com/docs/85748/1n4148w.pdf"
 			(at 55.88 123.19 0)
 			(hide yes)
 			(show_name no)
@@ -7478,7 +8113,7 @@
 				)
 			)
 		)
-		(property "Description" "50V, 1A, General Purpose Rectifier Diode, SMA(DO-214AC)"
+		(property "Description" "75V 0.15A Fast Switching Diode, SOD-123"
 			(at 55.88 123.19 0)
 			(hide yes)
 			(show_name no)
@@ -7609,6 +8244,84 @@
 			(project "conti_activate_plug"
 				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
 					(reference "Q3")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 26.67 120.65 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "a0578233-aa9b-40d3-8504-155ad0ba2650")
+		(property "Reference" "#PWR018"
+			(at 26.67 127 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "GND"
+			(at 26.67 125.73 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 26.67 120.65 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 26.67 120.65 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 26.67 120.65 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "68000eab-816f-49bd-bd46-4f73eec4fa88")
+		)
+		(instances
+			(project "conti_activate_plug"
+				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
+					(reference "#PWR018")
 					(unit 1)
 				)
 			)
