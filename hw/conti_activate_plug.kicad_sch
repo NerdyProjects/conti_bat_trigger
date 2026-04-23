@@ -5,6 +5,147 @@
 	(uuid "e92ebd24-1880-4bbb-96db-1fc0a486f61a")
 	(paper "A4")
 	(lib_symbols
+		(symbol "Connector:Conn_01x01_Socket"
+			(pin_names
+				(offset 1.016)
+				(hide yes)
+			)
+			(exclude_from_sim no)
+			(in_bom yes)
+			(on_board yes)
+			(in_pos_files yes)
+			(duplicate_pin_numbers_are_jumpers no)
+			(property "Reference" "J"
+				(at 0 2.54 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Value" "Conn_01x01_Socket"
+				(at 0 -2.54 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Footprint" ""
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Datasheet" ""
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Description" "Generic connector, single row, 01x01, script generated"
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "ki_locked" ""
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "ki_keywords" "connector"
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "ki_fp_filters" "Connector*:*_1x??_*"
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(symbol "Conn_01x01_Socket_1_1"
+				(polyline
+					(pts
+						(xy -1.27 0) (xy -0.508 0)
+					)
+					(stroke
+						(width 0.1524)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(arc
+					(start 0 -0.508)
+					(mid -0.5058 0)
+					(end 0 0.508)
+					(stroke
+						(width 0.1524)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(pin passive line
+					(at -5.08 0 0)
+					(length 3.81)
+					(name "Pin_1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+			)
+			(embedded_fonts no)
+		)
 		(symbol "Connector:Conn_01x02_Pin"
 			(pin_names
 				(offset 1.016)
@@ -1310,193 +1451,6 @@
 			)
 			(embedded_fonts no)
 		)
-		(symbol "Diode:1N4148W"
-			(pin_numbers
-				(hide yes)
-			)
-			(pin_names
-				(hide yes)
-			)
-			(exclude_from_sim no)
-			(in_bom yes)
-			(on_board yes)
-			(in_pos_files yes)
-			(duplicate_pin_numbers_are_jumpers no)
-			(property "Reference" "D"
-				(at 0 2.54 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Value" "1N4148W"
-				(at 0 -2.54 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Footprint" "Diode_SMD:D_SOD-123"
-				(at 0 -4.445 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Datasheet" "https://www.vishay.com/docs/85748/1n4148w.pdf"
-				(at 0 0 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Description" "75V 0.15A Fast Switching Diode, SOD-123"
-				(at 0 0 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Sim.Device" "D"
-				(at 0 0 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "Sim.Pins" "1=K 2=A"
-				(at 0 0 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "ki_keywords" "diode"
-				(at 0 0 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(property "ki_fp_filters" "D*SOD?123*"
-				(at 0 0 0)
-				(show_name no)
-				(do_not_autoplace no)
-				(hide yes)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-				)
-			)
-			(symbol "1N4148W_0_1"
-				(polyline
-					(pts
-						(xy -1.27 1.27) (xy -1.27 -1.27)
-					)
-					(stroke
-						(width 0.254)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(polyline
-					(pts
-						(xy 1.27 1.27) (xy 1.27 -1.27) (xy -1.27 0) (xy 1.27 1.27)
-					)
-					(stroke
-						(width 0.254)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(polyline
-					(pts
-						(xy 1.27 0) (xy -1.27 0)
-					)
-					(stroke
-						(width 0)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-			)
-			(symbol "1N4148W_1_1"
-				(pin passive line
-					(at -3.81 0 0)
-					(length 2.54)
-					(name "K"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "1"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-				(pin passive line
-					(at 3.81 0 180)
-					(length 2.54)
-					(name "A"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "2"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-			)
-			(embedded_fonts no)
-		)
 		(symbol "Diode:US1A"
 			(pin_numbers
 				(hide yes)
@@ -2333,6 +2287,105 @@
 			)
 			(embedded_fonts no)
 		)
+		(symbol "Mechanical:MountingHole"
+			(pin_names
+				(offset 1.016)
+			)
+			(exclude_from_sim no)
+			(in_bom no)
+			(on_board yes)
+			(in_pos_files yes)
+			(duplicate_pin_numbers_are_jumpers no)
+			(property "Reference" "H"
+				(at 0 5.08 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Value" "MountingHole"
+				(at 0 3.175 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Footprint" ""
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Datasheet" ""
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Description" "Mounting Hole without connection"
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "ki_keywords" "mounting hole"
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "ki_fp_filters" "MountingHole*"
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(symbol "MountingHole_0_1"
+				(circle
+					(center 0 0)
+					(radius 1.27)
+					(stroke
+						(width 1.27)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+			)
+			(embedded_fonts no)
+		)
 		(symbol "Regulator_Switching:LMR50410"
 			(pin_names
 				(offset 1.016)
@@ -2788,7 +2841,7 @@
 			)
 			(embedded_fonts no)
 		)
-		(symbol "Transistor_FET:BSS138"
+		(symbol "Transistor_FET:BSS123"
 			(pin_names
 				(offset 0)
 				(hide yes)
@@ -2809,7 +2862,7 @@
 					(justify left)
 				)
 			)
-			(property "Value" "BSS138"
+			(property "Value" "BSS123"
 				(at 5.08 0 0)
 				(show_name no)
 				(do_not_autoplace no)
@@ -2833,7 +2886,7 @@
 					(justify left)
 				)
 			)
-			(property "Datasheet" "https://www.onsemi.com/pub/Collateral/BSS138-D.PDF"
+			(property "Datasheet" "http://www.diodes.com/assets/Datasheets/ds30366.pdf"
 				(at 5.08 -3.81 0)
 				(show_name no)
 				(do_not_autoplace no)
@@ -2845,7 +2898,7 @@
 					(justify left)
 				)
 			)
-			(property "Description" "50V Vds, 0.22A Id, N-Channel MOSFET, SOT-23"
+			(property "Description" "0.17A Id, 100V Vds, N-Channel MOSFET, SOT-23"
 				(at 0 0 0)
 				(show_name no)
 				(do_not_autoplace no)
@@ -2878,7 +2931,7 @@
 					)
 				)
 			)
-			(symbol "BSS138_0_1"
+			(symbol "BSS123_0_1"
 				(polyline
 					(pts
 						(xy 0.254 1.905) (xy 0.254 -1.905)
@@ -3045,7 +3098,7 @@
 					)
 				)
 			)
-			(symbol "BSS138_1_1"
+			(symbol "BSS123_1_1"
 				(pin input line
 					(at -5.08 0 0)
 					(length 2.54)
@@ -3385,6 +3438,12 @@
 		(uuid "11f39e68-d856-4722-a3a6-bc371970cc77")
 	)
 	(junction
+		(at 49.53 157.48)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "1b57285c-85df-46e3-abcb-9fe3870afabd")
+	)
+	(junction
 		(at 46.99 128.27)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -3415,10 +3474,10 @@
 		(uuid "4af334db-f46e-44f5-a62b-cfcae7da4cdb")
 	)
 	(junction
-		(at 87.63 152.4)
+		(at 123.19 154.94)
 		(diameter 0)
 		(color 0 0 0 0)
-		(uuid "5e2b3035-a086-4bf0-a28b-1095383e74f6")
+		(uuid "6091a7ad-f066-4f18-8099-52c845587eae")
 	)
 	(junction
 		(at 157.48 59.69)
@@ -3439,6 +3498,12 @@
 		(uuid "655646a7-6764-46a4-a394-38f2446b5e5b")
 	)
 	(junction
+		(at 140.97 107.95)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "68d76689-5e82-4d05-9786-bd77428d8d25")
+	)
+	(junction
 		(at 39.37 128.27)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -3455,6 +3520,12 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "70f01804-cbf2-4015-a9e4-65903b77854a")
+	)
+	(junction
+		(at 87.63 160.02)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "7f9bfe34-4696-4a5e-a383-d93311377f7e")
 	)
 	(junction
 		(at 76.2 120.65)
@@ -3481,10 +3552,10 @@
 		(uuid "8cf55a47-0a28-49a9-a173-5d3b6430fd3b")
 	)
 	(junction
-		(at 49.53 157.48)
+		(at 87.63 152.4)
 		(diameter 0)
 		(color 0 0 0 0)
-		(uuid "8d8ead6c-a6fe-4ace-85ab-8a9b87ebbb68")
+		(uuid "8fafc0c5-19f2-4f81-bbf6-d86054eb0d1e")
 	)
 	(junction
 		(at 38.1 128.27)
@@ -3499,12 +3570,6 @@
 		(uuid "9a199659-5fba-46c6-bc9a-39306e86f406")
 	)
 	(junction
-		(at 87.63 160.02)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "ac1153d6-947a-47e2-bffc-f75db913c7f2")
-	)
-	(junction
 		(at 55.88 128.27)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -3515,12 +3580,6 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "c765a790-0a06-4917-8a0a-9962fe2b7a97")
-	)
-	(junction
-		(at 123.19 154.94)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "c78e313c-beac-4d2c-930d-2397f7d9b38c")
 	)
 	(junction
 		(at 157.48 46.99)
@@ -3604,7 +3663,7 @@
 	)
 	(wire
 		(pts
-			(xy 87.63 152.4) (xy 115.57 152.4)
+			(xy 85.09 152.4) (xy 87.63 152.4)
 		)
 		(stroke
 			(width 0)
@@ -3764,6 +3823,16 @@
 	)
 	(wire
 		(pts
+			(xy 123.19 154.94) (xy 123.19 156.21)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "3beecce0-baae-435b-8009-8a1a4b9b4970")
+	)
+	(wire
+		(pts
 			(xy 86.36 55.88) (xy 87.63 55.88)
 		)
 		(stroke
@@ -3824,6 +3893,16 @@
 	)
 	(wire
 		(pts
+			(xy 132.08 100.33) (xy 132.08 102.87)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "4f995e50-6011-4e18-9c94-95aac6d049fe")
+	)
+	(wire
+		(pts
 			(xy 212.09 40.64) (xy 214.63 40.64)
 		)
 		(stroke
@@ -3874,6 +3953,16 @@
 	)
 	(wire
 		(pts
+			(xy 132.08 107.95) (xy 140.97 107.95)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "5a28f896-42dd-4e1b-b1bb-06871e36c592")
+	)
+	(wire
+		(pts
 			(xy 123.19 172.72) (xy 123.19 173.99)
 		)
 		(stroke
@@ -3891,6 +3980,16 @@
 			(type default)
 		)
 		(uuid "5ec7e2c9-c68a-4178-ae70-90738a12b54c")
+	)
+	(wire
+		(pts
+			(xy 87.63 152.4) (xy 115.57 152.4)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "5ef3a85f-cae1-4ace-ad23-e47234c61eab")
 	)
 	(wire
 		(pts
@@ -4044,6 +4143,16 @@
 	)
 	(wire
 		(pts
+			(xy 86.36 58.42) (xy 87.63 58.42)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "85860175-bed7-4ab0-9b93-048eefc78a40")
+	)
+	(wire
+		(pts
 			(xy 123.19 142.24) (xy 124.46 142.24)
 		)
 		(stroke
@@ -4134,13 +4243,13 @@
 	)
 	(wire
 		(pts
-			(xy 123.19 154.94) (xy 123.19 156.21)
+			(xy 142.24 100.33) (xy 132.08 100.33)
 		)
 		(stroke
 			(width 0)
 			(type default)
 		)
-		(uuid "9856b085-4b0b-463d-a2c0-b0f48a78aadf")
+		(uuid "990d8485-c6ec-4789-aae7-75fd3cfcdbf3")
 	)
 	(wire
 		(pts
@@ -4164,7 +4273,7 @@
 	)
 	(wire
 		(pts
-			(xy 49.53 157.48) (xy 60.96 157.48)
+			(xy 44.45 157.48) (xy 49.53 157.48)
 		)
 		(stroke
 			(width 0)
@@ -4191,16 +4300,6 @@
 			(type default)
 		)
 		(uuid "ab5f83c1-95dc-4002-b4b7-ebe90bc02474")
-	)
-	(wire
-		(pts
-			(xy 44.45 157.48) (xy 49.53 157.48)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "ac523bf4-1af0-42f7-bc3e-326fa4f94931")
 	)
 	(wire
 		(pts
@@ -4314,13 +4413,13 @@
 	)
 	(wire
 		(pts
-			(xy 85.09 152.4) (xy 87.63 152.4)
+			(xy 49.53 157.48) (xy 60.96 157.48)
 		)
 		(stroke
 			(width 0)
 			(type default)
 		)
-		(uuid "f62d2c76-8b97-4a62-a1b0-eeeb579b99be")
+		(uuid "f9cf65df-a19f-43b5-931f-f0e0534314b1")
 	)
 	(wire
 		(pts
@@ -4392,7 +4491,7 @@
 		)
 		(uuid "29706aa4-aa0f-4cd2-aa6e-b2e7ef66d856")
 	)
-	(label "CAN_STBY"
+	(label "~{CAN_STBY}"
 		(at 140.97 102.87 180)
 		(effects
 			(font
@@ -4401,16 +4500,6 @@
 			(justify right bottom)
 		)
 		(uuid "2e88ee0c-f8db-402e-aeb4-41d247d6b033")
-	)
-	(label "CAN_STBY"
-		(at 55.88 76.2 180)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify right bottom)
-		)
-		(uuid "2f6e1045-e9dc-4d58-9ea5-9d7e04579713")
 	)
 	(label "LED"
 		(at 58.42 64.77 180)
@@ -4462,6 +4551,26 @@
 		)
 		(uuid "55d8aaaf-ff0b-46f7-ac6d-6b87773bea07")
 	)
+	(label "WAKEUP_VBAT+"
+		(at 156.21 76.2 180)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right bottom)
+		)
+		(uuid "562db30e-ce46-4316-9a1b-60b8b702875d")
+	)
+	(label "CAN_SHUTDOWN"
+		(at 142.24 100.33 180)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right bottom)
+		)
+		(uuid "5fa3db38-24d5-4a06-99a1-8ad49cdf88a4")
+	)
 	(label "CANL"
 		(at 152.4 53.34 180)
 		(effects
@@ -4491,6 +4600,16 @@
 			(justify right bottom)
 		)
 		(uuid "84ad3039-d800-468b-a697-c26a0bfe2920")
+	)
+	(label "~{CAN_STBY}"
+		(at 55.88 76.2 180)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right bottom)
+		)
+		(uuid "9228eb64-7aa1-41d5-95e4-b544a5a5019a")
 	)
 	(label "BAT+"
 		(at 212.09 38.1 180)
@@ -4551,6 +4670,16 @@
 			(justify right bottom)
 		)
 		(uuid "aba06b48-24fe-40f8-a55c-b9d28415f551")
+	)
+	(label "CAN_SHUTDOWN"
+		(at 87.63 58.42 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "acd8b204-780a-40f0-b646-abf55d83c54a")
 	)
 	(label "WAKEUP_VBAT+"
 		(at 80.01 152.4 180)
@@ -4928,7 +5057,7 @@
 				(justify right)
 			)
 		)
-		(property "Value" "S1A"
+		(property "Value" "S1B"
 			(at 31.75 124.4599 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -4939,7 +5068,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "Diode_SMD:D_SMA"
+		(property "Footprint" "Diode_SMD:D_SOD-123F"
 			(at 33.655 123.19 0)
 			(hide yes)
 			(show_name no)
@@ -4950,7 +5079,7 @@
 				)
 			)
 		)
-		(property "Datasheet" "https://www.diodes.com/assets/Datasheets/ds16008.pdf"
+		(property "Datasheet" ""
 			(at 29.21 123.19 0)
 			(hide yes)
 			(show_name no)
@@ -4961,7 +5090,7 @@
 				)
 			)
 		)
-		(property "Description" "50V, 1A, General Purpose Rectifier Diode, SMA(DO-214AC)"
+		(property "Description" "100V 1A Rectifier, 123F"
 			(at 29.21 123.19 0)
 			(hide yes)
 			(show_name no)
@@ -5125,7 +5254,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "TerminalBlock_MetzConnect:TerminalBlock_MetzConnect_Type073_RT02602HBLU_1x02_P5.08mm_Horizontal"
+		(property "Footprint" "Library:1x02_P5.08mm"
 			(at 162.56 46.99 0)
 			(hide yes)
 			(show_name no)
@@ -5168,6 +5297,82 @@
 			(project "conti_activate_plug"
 				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
 					(reference "J3")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Mechanical:MountingHole")
+		(at 250.19 116.84 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom no)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "155f4476-383b-4bb2-9589-f2898c720eb7")
+		(property "Reference" "H1"
+			(at 252.73 115.5699 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "MountingHole"
+			(at 252.73 118.1099 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "MountingHole:MountingHole_3.2mm_M3"
+			(at 250.19 116.84 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 250.19 116.84 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Mounting Hole without connection"
+			(at 250.19 116.84 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(instances
+			(project "conti_activate_plug"
+				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
+					(reference "H1")
 					(unit 1)
 				)
 			)
@@ -5336,6 +5541,110 @@
 		)
 	)
 	(symbol
+		(lib_id "Diode:US1A")
+		(at 49.53 153.67 270)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp yes)
+		(fields_autoplaced yes)
+		(uuid "1eef81b4-03f2-463f-8748-de95d1344703")
+		(property "Reference" "D13"
+			(at 52.07 152.3999 90)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "S1B"
+			(at 52.07 154.9399 90)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Diode_SMD:D_SOD-123F"
+			(at 45.085 153.67 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 49.53 153.67 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "100V 1A Rectifier, 123F"
+			(at 49.53 153.67 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Sim.Device" "D"
+			(at 49.53 153.67 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Sim.Pins" "1=K 2=A"
+			(at 49.53 153.67 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "b198fe1b-57f7-40d2-ad61-8a9e3a013bb2")
+		)
+		(pin "2"
+			(uuid "488f2d9d-c98e-4a92-bd4d-0faa5f584c7f")
+		)
+		(instances
+			(project "conti_activate_plug"
+				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
+					(reference "D13")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "power:+3V3")
 		(at 140.97 110.49 180)
 		(unit 1)
@@ -5496,41 +5805,41 @@
 		)
 	)
 	(symbol
-		(lib_id "Diode:1N4148W")
-		(at 49.53 153.67 270)
+		(lib_id "Diode:US1A")
+		(at 38.1 123.19 90)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
 		(in_bom yes)
 		(on_board yes)
 		(in_pos_files yes)
-		(dnp no)
+		(dnp yes)
 		(fields_autoplaced yes)
-		(uuid "2dbe16c5-f6b0-42b9-b67f-de96935bcb8f")
-		(property "Reference" "D8"
-			(at 52.07 152.3999 90)
+		(uuid "27d1c562-e53e-4a3d-936d-7a6d34239307")
+		(property "Reference" "D10"
+			(at 40.64 121.9199 90)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
-				(justify left)
+				(justify right)
 			)
 		)
-		(property "Value" "1N4148W"
-			(at 52.07 154.9399 90)
+		(property "Value" "S1B"
+			(at 40.64 124.4599 90)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
-				(justify left)
+				(justify right)
 			)
 		)
-		(property "Footprint" "Diode_SMD:D_SOD-123"
-			(at 45.085 153.67 0)
+		(property "Footprint" "Diode_SMD:D_SOD-123F"
+			(at 42.545 123.19 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5540,8 +5849,8 @@
 				)
 			)
 		)
-		(property "Datasheet" "https://www.vishay.com/docs/85748/1n4148w.pdf"
-			(at 49.53 153.67 0)
+		(property "Datasheet" ""
+			(at 38.1 123.19 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5551,8 +5860,8 @@
 				)
 			)
 		)
-		(property "Description" "75V 0.15A Fast Switching Diode, SOD-123"
-			(at 49.53 153.67 0)
+		(property "Description" "100V 1A Rectifier, 123F"
+			(at 38.1 123.19 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5563,7 +5872,7 @@
 			)
 		)
 		(property "Sim.Device" "D"
-			(at 49.53 153.67 0)
+			(at 38.1 123.19 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5574,7 +5883,7 @@
 			)
 		)
 		(property "Sim.Pins" "1=K 2=A"
-			(at 49.53 153.67 0)
+			(at 38.1 123.19 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5585,15 +5894,15 @@
 			)
 		)
 		(pin "1"
-			(uuid "be56eda0-5c5f-48a0-87fa-d888985901dd")
+			(uuid "0e9efc22-cc37-44ca-ad28-a4eb7080f9eb")
 		)
 		(pin "2"
-			(uuid "f8765800-e132-42be-83c4-7300c1a5e6e5")
+			(uuid "42301cfd-d454-4fc2-b960-0363e2ec2d22")
 		)
 		(instances
 			(project "conti_activate_plug"
 				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
-					(reference "D8")
+					(reference "D10")
 					(unit 1)
 				)
 			)
@@ -5633,7 +5942,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "TerminalBlock_MetzConnect:TerminalBlock_MetzConnect_Type073_RT02602HBLU_1x02_P5.08mm_Horizontal"
+		(property "Footprint" "Library:1x02_P5.08mm"
 			(at 162.56 59.69 0)
 			(hide yes)
 			(show_name no)
@@ -5758,110 +6067,6 @@
 			(project "conti_activate_plug"
 				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
 					(reference "C6")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Diode:1N4148W")
-		(at 38.1 123.19 90)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp yes)
-		(fields_autoplaced yes)
-		(uuid "3fc5a544-5b71-4a96-b4cd-968cb1117950")
-		(property "Reference" "D6"
-			(at 40.64 121.9199 90)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-			)
-		)
-		(property "Value" "1N4148W"
-			(at 40.64 124.4599 90)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-			)
-		)
-		(property "Footprint" "Diode_SMD:D_SOD-123"
-			(at 42.545 123.19 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" "https://www.vishay.com/docs/85748/1n4148w.pdf"
-			(at 38.1 123.19 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" "75V 0.15A Fast Switching Diode, SOD-123"
-			(at 38.1 123.19 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Device" "D"
-			(at 38.1 123.19 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Pins" "1=K 2=A"
-			(at 38.1 123.19 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "27f4f2e3-d67b-4f27-a202-32f3a002d5af")
-		)
-		(pin "2"
-			(uuid "0af07eec-d80f-477a-afe9-ee78b18b11f2")
-		)
-		(instances
-			(project "conti_activate_plug"
-				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
-					(reference "D6")
 					(unit 1)
 				)
 			)
@@ -6136,7 +6341,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "SN65HVD230"
+		(property "Value" "SN65HVD230 // tcan3414"
 			(at 154.5433 90.17 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -6214,7 +6419,7 @@
 		)
 	)
 	(symbol
-		(lib_id "Transistor_FET:BSS138")
+		(lib_id "Transistor_FET:BSS123")
 		(at 45.72 172.72 0)
 		(unit 1)
 		(body_style 1)
@@ -6236,7 +6441,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "BSS138"
+		(property "Value" "BSS123L"
 			(at 52.07 173.9899 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -6260,7 +6465,7 @@
 				(justify left)
 			)
 		)
-		(property "Datasheet" "https://www.onsemi.com/pub/Collateral/BSS138-D.PDF"
+		(property "Datasheet" "http://www.diodes.com/assets/Datasheets/ds30366.pdf"
 			(at 50.8 176.53 0)
 			(hide yes)
 			(show_name no)
@@ -6272,7 +6477,7 @@
 				(justify left)
 			)
 		)
-		(property "Description" "50V Vds, 0.22A Id, N-Channel MOSFET, SOT-23"
+		(property "Description" "0.17A Id, 100V Vds, N-Channel MOSFET, SOT-23"
 			(at 45.72 172.72 0)
 			(hide yes)
 			(show_name no)
@@ -6382,6 +6587,88 @@
 		)
 	)
 	(symbol
+		(lib_id "Device:R_Small")
+		(at 132.08 105.41 180)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "46591749-f887-4549-8c3a-6e2f9c74f14f")
+		(property "Reference" "R10"
+			(at 134.62 104.1399 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.016 1.016)
+				)
+				(justify right)
+			)
+		)
+		(property "Value" "32k"
+			(at 134.62 106.6799 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 132.08 105.41 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 132.08 105.41 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Resistor, small symbol"
+			(at 132.08 105.41 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "b9696b5e-ccb9-470f-9a26-69f6d36ac56e")
+		)
+		(pin "2"
+			(uuid "3a049cc6-63c5-42bd-8322-d1dca5587350")
+		)
+		(instances
+			(project "conti_activate_plug"
+				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
+					(reference "R10")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Device:C_Small")
 		(at 62.23 130.81 0)
 		(unit 1)
@@ -6415,7 +6702,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0805_2012Metric"
+		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
 			(at 62.23 130.81 0)
 			(hide yes)
 			(show_name no)
@@ -6661,7 +6948,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "TerminalBlock_MetzConnect:TerminalBlock_MetzConnect_Type073_RT02602HBLU_1x02_P5.08mm_Horizontal"
+		(property "Footprint" "Library:1x02_P5.08mm"
 			(at 162.56 40.64 0)
 			(hide yes)
 			(show_name no)
@@ -6704,6 +6991,108 @@
 			(project "conti_activate_plug"
 				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
 					(reference "J2")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Diode:US1A")
+		(at 119.38 154.94 180)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp yes)
+		(fields_autoplaced yes)
+		(uuid "4ea73bf4-b10f-4ed0-b761-b152adc24a8e")
+		(property "Reference" "D15"
+			(at 119.38 148.59 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "S1B"
+			(at 119.38 151.13 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Diode_SMD:D_SOD-123F"
+			(at 119.38 150.495 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 119.38 154.94 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "100V 1A Rectifier, 123F"
+			(at 119.38 154.94 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Sim.Device" "D"
+			(at 119.38 154.94 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Sim.Pins" "1=K 2=A"
+			(at 119.38 154.94 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "96424e75-0fa5-439b-b0c1-c69df833f667")
+		)
+		(pin "2"
+			(uuid "46ac74c7-7a0a-4260-b83e-fd1b0e875c50")
+		)
+		(instances
+			(project "conti_activate_plug"
+				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
+					(reference "D15")
 					(unit 1)
 				)
 			)
@@ -6861,6 +7250,110 @@
 			(project "conti_activate_plug"
 				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
 					(reference "#PWR09")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Diode:US1A")
+		(at 46.99 123.19 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "5b83c94c-eeb3-4b09-a6a3-9f294febfc9c")
+		(property "Reference" "D11"
+			(at 49.53 121.9199 90)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Value" "S1B"
+			(at 49.53 124.4599 90)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Footprint" "Diode_SMD:D_SOD-123F"
+			(at 51.435 123.19 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 46.99 123.19 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "100V 1A Rectifier, 123F"
+			(at 46.99 123.19 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Sim.Device" "D"
+			(at 46.99 123.19 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Sim.Pins" "1=K 2=A"
+			(at 46.99 123.19 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "0992eda9-92d6-471d-b4fc-5a526a75d7d6")
+		)
+		(pin "2"
+			(uuid "0cc9cb7d-d416-47fa-8121-db756ff8af0f")
+		)
+		(instances
+			(project "conti_activate_plug"
+				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
+					(reference "D11")
 					(unit 1)
 				)
 			)
@@ -7126,7 +7619,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "100µF"
+		(property "Value" "470µF"
 			(at 43.18 132.4609 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -7266,109 +7759,7 @@
 		)
 	)
 	(symbol
-		(lib_id "Diode:US1A")
-		(at 119.38 154.94 180)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp yes)
-		(fields_autoplaced yes)
-		(uuid "728a9942-d108-4548-a8e7-1ab399a2b16c")
-		(property "Reference" "D7"
-			(at 119.38 148.59 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "S1A"
-			(at 119.38 151.13 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Diode_SMD:D_SMA"
-			(at 119.38 150.495 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" "https://www.diodes.com/assets/Datasheets/ds16008.pdf"
-			(at 119.38 154.94 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" "50V, 1A, General Purpose Rectifier Diode, SMA(DO-214AC)"
-			(at 119.38 154.94 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Device" "D"
-			(at 119.38 154.94 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Pins" "1=K 2=A"
-			(at 119.38 154.94 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "8f149a92-19c1-4270-aeae-5987711f1ac2")
-		)
-		(pin "2"
-			(uuid "7819f27f-e1ec-4a2c-bce9-0f8aa5a649f2")
-		)
-		(instances
-			(project "conti_activate_plug"
-				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
-					(reference "D7")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Transistor_FET:BSS138")
+		(lib_id "Transistor_FET:BSS123")
 		(at 85.09 173.99 0)
 		(unit 1)
 		(body_style 1)
@@ -7390,7 +7781,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "BSS138"
+		(property "Value" "BSS123L"
 			(at 91.44 175.2599 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -7414,7 +7805,7 @@
 				(justify left)
 			)
 		)
-		(property "Datasheet" "https://www.onsemi.com/pub/Collateral/BSS138-D.PDF"
+		(property "Datasheet" "http://www.diodes.com/assets/Datasheets/ds30366.pdf"
 			(at 90.17 177.8 0)
 			(hide yes)
 			(show_name no)
@@ -7426,7 +7817,7 @@
 				(justify left)
 			)
 		)
-		(property "Description" "50V Vds, 0.22A Id, N-Channel MOSFET, SOT-23"
+		(property "Description" "0.17A Id, 100V Vds, N-Channel MOSFET, SOT-23"
 			(at 85.09 173.99 0)
 			(hide yes)
 			(show_name no)
@@ -7528,6 +7919,82 @@
 			(project "conti_activate_plug"
 				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
 					(reference "#PWR01")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Mechanical:MountingHole")
+		(at 250.19 127 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom no)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "79129f35-db6f-45af-801d-bf39d1ad3132")
+		(property "Reference" "H3"
+			(at 252.73 125.7299 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "MountingHole"
+			(at 252.73 128.2699 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "MountingHole:MountingHole_2.2mm_M2"
+			(at 250.19 127 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 250.19 127 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Mounting Hole without connection"
+			(at 250.19 127 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(instances
+			(project "conti_activate_plug"
+				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
+					(reference "H3")
 					(unit 1)
 				)
 			)
@@ -7768,110 +8235,6 @@
 		)
 	)
 	(symbol
-		(lib_id "Diode:1N4148W")
-		(at 87.63 156.21 90)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "87bbb31a-f3f9-421f-8c90-e12fc828f0c1")
-		(property "Reference" "D4"
-			(at 90.17 154.9399 90)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-			)
-		)
-		(property "Value" "1N4148W"
-			(at 90.17 157.4799 90)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-			)
-		)
-		(property "Footprint" "Diode_SMD:D_SOD-123"
-			(at 92.075 156.21 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" "https://www.vishay.com/docs/85748/1n4148w.pdf"
-			(at 87.63 156.21 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" "75V 0.15A Fast Switching Diode, SOD-123"
-			(at 87.63 156.21 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Device" "D"
-			(at 87.63 156.21 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Pins" "1=K 2=A"
-			(at 87.63 156.21 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "5179e8f1-5111-49a2-b7cd-73dd349198b7")
-		)
-		(pin "2"
-			(uuid "fa649efb-ed74-4ed3-bff0-9a2c6d770b68")
-		)
-		(instances
-			(project "conti_activate_plug"
-				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
-					(reference "D4")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "Connector:Conn_01x02_Pin")
 		(at 162.56 53.34 180)
 		(unit 1)
@@ -7905,7 +8268,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "TerminalBlock_MetzConnect:TerminalBlock_MetzConnect_Type073_RT02602HBLU_1x02_P5.08mm_Horizontal"
+		(property "Footprint" "Library:1x02_P5.08mm"
 			(at 162.56 53.34 0)
 			(hide yes)
 			(show_name no)
@@ -7954,215 +8317,7 @@
 		)
 	)
 	(symbol
-		(lib_id "Diode:US1A")
-		(at 46.99 123.19 90)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "8f5edf17-335d-4fd7-8beb-000d4a5865df")
-		(property "Reference" "D2"
-			(at 49.53 121.9199 90)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-			)
-		)
-		(property "Value" "S1A"
-			(at 49.53 124.4599 90)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-			)
-		)
-		(property "Footprint" "Diode_SMD:D_SMA"
-			(at 51.435 123.19 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" "https://www.diodes.com/assets/Datasheets/ds16008.pdf"
-			(at 46.99 123.19 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" "50V, 1A, General Purpose Rectifier Diode, SMA(DO-214AC)"
-			(at 46.99 123.19 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Device" "D"
-			(at 46.99 123.19 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Pins" "1=K 2=A"
-			(at 46.99 123.19 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "3ce80e5d-2893-4c82-b9ef-bed9e734f3ab")
-		)
-		(pin "2"
-			(uuid "5e4d47a7-f59c-4fff-9e8a-6209f4ac069b")
-		)
-		(instances
-			(project "conti_activate_plug"
-				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
-					(reference "D2")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Diode:1N4148W")
-		(at 55.88 123.19 90)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp yes)
-		(fields_autoplaced yes)
-		(uuid "920ce967-9329-4746-96f9-a0b796bc3aa4")
-		(property "Reference" "D5"
-			(at 58.42 121.9199 90)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-			)
-		)
-		(property "Value" "1N4148W"
-			(at 58.42 124.4599 90)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-			)
-		)
-		(property "Footprint" "Diode_SMD:D_SOD-123"
-			(at 60.325 123.19 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" "https://www.vishay.com/docs/85748/1n4148w.pdf"
-			(at 55.88 123.19 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" "75V 0.15A Fast Switching Diode, SOD-123"
-			(at 55.88 123.19 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Device" "D"
-			(at 55.88 123.19 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Sim.Pins" "1=K 2=A"
-			(at 55.88 123.19 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "b82582d5-90ed-41f9-8085-04d27c8f04c0")
-		)
-		(pin "2"
-			(uuid "e5ed63a3-ff33-4561-9333-522a007e0113")
-		)
-		(instances
-			(project "conti_activate_plug"
-				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
-					(reference "D5")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Transistor_FET:BSS138")
+		(lib_id "Transistor_FET:BSS123")
 		(at 125.73 167.64 0)
 		(mirror y)
 		(unit 1)
@@ -8184,7 +8339,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "BSS138"
+		(property "Value" "BSS123L"
 			(at 119.38 168.9099 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -8208,7 +8363,7 @@
 				(justify left)
 			)
 		)
-		(property "Datasheet" "https://www.onsemi.com/pub/Collateral/BSS138-D.PDF"
+		(property "Datasheet" "http://www.diodes.com/assets/Datasheets/ds30366.pdf"
 			(at 120.65 171.45 0)
 			(hide yes)
 			(show_name no)
@@ -8220,7 +8375,7 @@
 				(justify left)
 			)
 		)
-		(property "Description" "50V Vds, 0.22A Id, N-Channel MOSFET, SOT-23"
+		(property "Description" "0.17A Id, 100V Vds, N-Channel MOSFET, SOT-23"
 			(at 125.73 167.64 0)
 			(hide yes)
 			(show_name no)
@@ -8478,6 +8633,110 @@
 			(project "conti_activate_plug"
 				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
 					(reference "#PWR010")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Diode:US1A")
+		(at 87.63 156.21 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "afe3b178-6ebe-4c68-a4bb-5fdcd6d38e2a")
+		(property "Reference" "D14"
+			(at 90.17 154.9399 90)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Value" "S1B"
+			(at 90.17 157.4799 90)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Footprint" "Diode_SMD:D_SOD-123F"
+			(at 92.075 156.21 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 87.63 156.21 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "100V 1A Rectifier, 123F"
+			(at 87.63 156.21 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Sim.Device" "D"
+			(at 87.63 156.21 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Sim.Pins" "1=K 2=A"
+			(at 87.63 156.21 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "aafeea6f-72ec-4983-962b-2c76164600dc")
+		)
+		(pin "2"
+			(uuid "2bfa9164-a7c7-40a7-8881-8ea4310b3de3")
+		)
+		(instances
+			(project "conti_activate_plug"
+				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
+					(reference "D14")
 					(unit 1)
 				)
 			)
@@ -9154,7 +9413,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "TerminalBlock_MetzConnect:TerminalBlock_MetzConnect_Type073_RT02602HBLU_1x02_P5.08mm_Horizontal"
+		(property "Footprint" "Library:1x02_P5.08mm"
 			(at 162.56 66.04 0)
 			(hide yes)
 			(show_name no)
@@ -9197,6 +9456,82 @@
 			(project "conti_activate_plug"
 				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
 					(reference "J6")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Mechanical:MountingHole")
+		(at 250.19 121.92 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom no)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "cfb46905-e5c5-490d-9c8a-4f0fd4b4fe90")
+		(property "Reference" "H2"
+			(at 252.73 120.6499 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "MountingHole"
+			(at 252.73 123.1899 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "MountingHole:MountingHole_3.2mm_M3"
+			(at 250.19 121.92 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 250.19 121.92 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Mounting Hole without connection"
+			(at 250.19 121.92 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(instances
+			(project "conti_activate_plug"
+				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
+					(reference "H2")
 					(unit 1)
 				)
 			)
@@ -9359,6 +9694,189 @@
 		)
 	)
 	(symbol
+		(lib_id "Diode:US1A")
+		(at 55.88 123.19 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp yes)
+		(fields_autoplaced yes)
+		(uuid "e940921d-ffdb-48e8-a581-2fa6983dcef0")
+		(property "Reference" "D12"
+			(at 58.42 121.9199 90)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Value" "S1B"
+			(at 58.42 124.4599 90)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Footprint" "Diode_SMD:D_SOD-123F"
+			(at 60.325 123.19 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 55.88 123.19 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "100V 1A Rectifier, 123F"
+			(at 55.88 123.19 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Sim.Device" "D"
+			(at 55.88 123.19 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Sim.Pins" "1=K 2=A"
+			(at 55.88 123.19 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "57008366-bd2c-4a3f-8ba3-761cdd1821ac")
+		)
+		(pin "2"
+			(uuid "bf438561-7405-432d-a767-5ee896438cbb")
+		)
+		(instances
+			(project "conti_activate_plug"
+				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
+					(reference "D12")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Connector:Conn_01x01_Socket")
+		(at 161.29 76.2 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "ec1f84f8-cb8d-4bf1-a831-92fc28e2ad47")
+		(property "Reference" "J9"
+			(at 162.56 74.9299 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "Conn_01x01_Socket"
+			(at 162.56 77.4699 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_1x01_P2.54mm_Vertical"
+			(at 161.29 76.2 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 161.29 76.2 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Generic connector, single row, 01x01, script generated"
+			(at 161.29 76.2 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "690a5220-e499-44c1-afa7-a3d8ec0128ec")
+		)
+		(instances
+			(project "conti_activate_plug"
+				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
+					(reference "J9")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Connector:Conn_01x02_Pin")
 		(at 162.56 34.29 180)
 		(unit 1)
@@ -9392,7 +9910,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "TerminalBlock_MetzConnect:TerminalBlock_MetzConnect_Type073_RT02602HBLU_1x02_P5.08mm_Horizontal"
+		(property "Footprint" "Library:1x02_P5.08mm"
 			(at 162.56 34.29 0)
 			(hide yes)
 			(show_name no)
@@ -9463,7 +9981,7 @@
 				(justify right)
 			)
 		)
-		(property "Value" "100k"
+		(property "Value" "32k"
 			(at 143.51 106.6799 0)
 			(show_name no)
 			(do_not_autoplace no)
