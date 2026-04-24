@@ -5401,7 +5401,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "10µF 10V"
+		(property "Value" "10µF 16V"
 			(at 134.62 129.5462 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5435,6 +5435,17 @@
 			)
 		)
 		(property "Description" "Unpolarized capacitor, small symbol"
+			(at 132.08 128.27 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Order" "CL21A106KOQNNNF"
 			(at 132.08 128.27 0)
 			(hide yes)
 			(show_name no)
@@ -6106,7 +6117,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Diode_SMD:D_SOD-323"
+		(property "Footprint" "Diode_SMD:D_SOD-123F"
 			(at 87.63 163.83 0)
 			(hide yes)
 			(show_name no)
@@ -6177,7 +6188,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "10µF 10V"
+		(property "Value" "10µF 16V"
 			(at 148.59 129.5462 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -6211,6 +6222,17 @@
 			)
 		)
 		(property "Description" "Unpolarized capacitor, small symbol"
+			(at 146.05 128.27 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Order" "CL21A106KOQNNNF"
 			(at 146.05 128.27 0)
 			(hide yes)
 			(show_name no)
@@ -9161,6 +9183,17 @@
 			)
 		)
 		(property "Description" "Unpolarized capacitor, small symbol"
+			(at 46.99 130.81 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Order" "CL31B225KCHSNNE"
 			(at 46.99 130.81 0)
 			(hide yes)
 			(show_name no)
