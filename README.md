@@ -17,3 +17,8 @@ Die Conti-Akkus aus dem Finger-Forum liegen immer noch rum, eine Platine muss he
 ### Timeline
 * Mitte Mai: PCB Bestellung
 * Bis Ende Mai: Erste Tests geplant
+
+
+## Errata
+### HW v1 (Prod. 2026-05-06)
+ * Fehlender Widerstand am Wakeup-Pullup. Wenn Pullup und Pulldown gleichzeitig aktiviert werden würden, kommt es zum Kurzschluss. Abhilfe: Leiterbahn zwischen D13 und R13 durchtrennen, einen Widerstand 1-5k darüber löten. Der passt gut auf die Pads mit drauf. Alternativ den Trace zwischen R15 und D13 (der von Q3 zu D3 geht) durchtrennen, etwas Lötstopp wegkratzen und dort die 1-3k einlöten.
