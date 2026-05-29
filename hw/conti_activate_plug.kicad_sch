@@ -4002,6 +4002,12 @@
 		(uuid "0e4c30ec-cc0e-42ba-ad00-0874cade317c")
 	)
 	(junction
+		(at 88.9 135.89)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "10609501-ec41-4ce7-9d7f-191a320f2f1b")
+	)
+	(junction
 		(at 87.63 152.4)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -4050,10 +4056,22 @@
 		(uuid "48b46e17-555b-46ce-8339-e5a5feff9dbd")
 	)
 	(junction
+		(at 48.26 179.07)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "4a8fe6d5-e96c-490a-a2e8-08f56ce36fb1")
+	)
+	(junction
 		(at 87.63 160.02)
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "5182f897-4652-4096-9a9e-56f5f8df7956")
+	)
+	(junction
+		(at 114.3 179.07)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "580347e6-c1bf-47f7-9585-b6dbef5f70cd")
 	)
 	(junction
 		(at 157.48 59.69)
@@ -4098,12 +4116,6 @@
 		(uuid "70f01804-cbf2-4015-a9e4-65903b77854a")
 	)
 	(junction
-		(at 76.2 120.65)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "83160cd9-d268-4393-9461-095a1530338f")
-	)
-	(junction
 		(at 114.3 160.02)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -4122,16 +4134,34 @@
 		(uuid "9a199659-5fba-46c6-bc9a-39306e86f406")
 	)
 	(junction
+		(at 109.22 66.04)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "a276e735-c425-49f7-8fe5-2491a97aa3e7")
+	)
+	(junction
 		(at 63.5 120.65)
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "c52e6c00-5f6c-4e51-8f2f-2bc8fabbd548")
 	)
 	(junction
+		(at 87.63 179.07)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "c5a8a4d1-80cf-4cd1-bf19-02ae72a1f5e4")
+	)
+	(junction
 		(at 214.63 38.1)
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "c765a790-0a06-4917-8a0a-9962fe2b7a97")
+	)
+	(junction
+		(at 72.39 130.81)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "caddb7f1-f2bd-4732-9efe-df6664584403")
 	)
 	(junction
 		(at 157.48 46.99)
@@ -4223,6 +4253,16 @@
 	)
 	(wire
 		(pts
+			(xy 40.64 179.07) (xy 48.26 179.07)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "03bb86cb-825c-411f-a295-8fa6b740686c")
+	)
+	(wire
+		(pts
 			(xy 176.53 106.68) (xy 176.53 109.22)
 		)
 		(stroke
@@ -4263,6 +4303,26 @@
 	)
 	(wire
 		(pts
+			(xy 114.3 179.07) (xy 114.3 180.34)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "0e2173fa-645d-48be-ab52-b04806e8c056")
+	)
+	(wire
+		(pts
+			(xy 105.41 152.4) (xy 109.22 152.4)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "10b415c9-b2bc-4a1b-b62c-91d25c096142")
+	)
+	(wire
+		(pts
 			(xy 87.63 167.64) (xy 87.63 168.91)
 		)
 		(stroke
@@ -4300,6 +4360,16 @@
 			(type default)
 		)
 		(uuid "1752fd04-80fb-4d91-816e-0f6deb558c69")
+	)
+	(wire
+		(pts
+			(xy 109.22 63.5) (xy 109.22 66.04)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "1914ac55-5485-4449-a43e-cc98ead8c05c")
 	)
 	(wire
 		(pts
@@ -4413,6 +4483,16 @@
 	)
 	(wire
 		(pts
+			(xy 72.39 125.73) (xy 76.2 125.73)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "34970335-47da-4422-8010-b9a155e55a7d")
+	)
+	(wire
+		(pts
 			(xy 55.88 120.65) (xy 54.61 120.65)
 		)
 		(stroke
@@ -4463,7 +4543,7 @@
 	)
 	(wire
 		(pts
-			(xy 87.63 152.4) (xy 109.22 152.4)
+			(xy 87.63 152.4) (xy 100.33 152.4)
 		)
 		(stroke
 			(width 0)
@@ -4480,6 +4560,16 @@
 			(type default)
 		)
 		(uuid "4ae157a2-028d-4d4b-9a42-7d00bf653c4c")
+	)
+	(wire
+		(pts
+			(xy 106.68 172.72) (xy 106.68 173.99)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "4bc79d22-f78c-46f1-b281-95212eb36f14")
 	)
 	(wire
 		(pts
@@ -4533,13 +4623,13 @@
 	)
 	(wire
 		(pts
-			(xy 76.2 120.65) (xy 76.2 125.73)
+			(xy 86.36 66.04) (xy 109.22 66.04)
 		)
 		(stroke
 			(width 0)
 			(type default)
 		)
-		(uuid "527e18f3-0a50-4857-833b-7e92fc3be2a3")
+		(uuid "521e1a98-ed0f-4e3a-b3b9-77582dcc4745")
 	)
 	(wire
 		(pts
@@ -4573,13 +4663,23 @@
 	)
 	(wire
 		(pts
-			(xy 48.26 177.8) (xy 48.26 180.34)
+			(xy 48.26 177.8) (xy 48.26 179.07)
 		)
 		(stroke
 			(width 0)
 			(type default)
 		)
 		(uuid "5ec7e2c9-c68a-4178-ae70-90738a12b54c")
+	)
+	(wire
+		(pts
+			(xy 80.01 179.07) (xy 87.63 179.07)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "644c2833-061b-48e3-b531-4ed6ab5c479f")
 	)
 	(wire
 		(pts
@@ -4613,6 +4713,16 @@
 	)
 	(wire
 		(pts
+			(xy 72.39 130.81) (xy 72.39 125.73)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "6c82cf2c-8301-46f7-a326-3e8722e066be")
+	)
+	(wire
+		(pts
 			(xy 25.4 157.48) (xy 39.37 157.48)
 		)
 		(stroke
@@ -4630,6 +4740,16 @@
 			(type default)
 		)
 		(uuid "72e21ccf-f3d0-42f5-acba-5bbcc90bbcf7")
+	)
+	(wire
+		(pts
+			(xy 106.68 179.07) (xy 114.3 179.07)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "72e6b8d8-b5d5-4b70-9228-c0542a929ed8")
 	)
 	(wire
 		(pts
@@ -4763,6 +4883,16 @@
 	)
 	(wire
 		(pts
+			(xy 48.26 179.07) (xy 48.26 180.34)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "8a7d48be-0f4a-470c-8d21-197bf07eed00")
+	)
+	(wire
+		(pts
 			(xy 114.3 166.37) (xy 114.3 167.64)
 		)
 		(stroke
@@ -4843,7 +4973,7 @@
 	)
 	(wire
 		(pts
-			(xy 114.3 177.8) (xy 114.3 180.34)
+			(xy 114.3 177.8) (xy 114.3 179.07)
 		)
 		(stroke
 			(width 0)
@@ -4870,6 +5000,16 @@
 			(type default)
 		)
 		(uuid "9d604e76-e07f-404d-bda6-7e8623f4379c")
+	)
+	(wire
+		(pts
+			(xy 109.22 71.12) (xy 109.22 72.39)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "a01c72e7-921e-4a9e-9aaf-527b3fd0b985")
 	)
 	(wire
 		(pts
@@ -5033,6 +5173,16 @@
 	)
 	(wire
 		(pts
+			(xy 40.64 172.72) (xy 40.64 173.99)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "bfb32da5-676e-4d7b-bf63-d0e36de06751")
+	)
+	(wire
+		(pts
 			(xy 157.48 38.1) (xy 157.48 40.64)
 		)
 		(stroke
@@ -5040,6 +5190,16 @@
 			(type default)
 		)
 		(uuid "cf44af14-986e-4aa2-8847-0d00cdcb5474")
+	)
+	(wire
+		(pts
+			(xy 72.39 135.89) (xy 88.9 135.89)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "d1d84c62-b4d9-4f0a-be93-3efd2332c2e1")
 	)
 	(wire
 		(pts
@@ -5070,6 +5230,16 @@
 			(type default)
 		)
 		(uuid "d47a22f7-6c66-4444-a465-32046a94a495")
+	)
+	(wire
+		(pts
+			(xy 109.22 57.15) (xy 109.22 58.42)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "db65f6df-0b12-467b-96c6-6e286b34ae18")
 	)
 	(wire
 		(pts
@@ -5140,6 +5310,16 @@
 			(type default)
 		)
 		(uuid "fb8ceb29-f1c8-466b-91c3-5c586784397f")
+	)
+	(wire
+		(pts
+			(xy 67.31 120.65) (xy 67.31 130.81)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "fe9ecb6c-65f4-44fb-bfd2-b93c956a9403")
 	)
 	(label "BAT-"
 		(at 212.09 40.64 180)
@@ -5451,6 +5631,16 @@
 		)
 		(uuid "e0656500-b738-435c-be4e-913587491c42")
 	)
+	(label "BAT+"
+		(at 109.22 57.15 180)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right bottom)
+		)
+		(uuid "e4d8b7dd-98bf-4c28-8c7f-ac5ae12f1ff2")
+	)
 	(label "WAKEUP_DETECT"
 		(at 41.91 157.48 180)
 		(effects
@@ -5684,7 +5874,7 @@
 				(justify right)
 			)
 		)
-		(property "Value" "120"
+		(property "Value" "200"
 			(at 144.78 50.7999 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5728,7 +5918,7 @@
 				)
 			)
 		)
-		(property "LCSC" "C22787"
+		(property "LCSC" "C8218"
 			(at 142.24 49.53 0)
 			(hide yes)
 			(show_name no)
@@ -6221,7 +6411,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "10µF 16V"
+		(property "Value" "22µF 25V"
 			(at 134.62 129.5462 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -6265,7 +6455,7 @@
 				)
 			)
 		)
-		(property "Order" "CL21A106KOQNNNF"
+		(property "Order" "CL21A226MAQNNNE"
 			(at 132.08 128.27 0)
 			(hide yes)
 			(show_name no)
@@ -7050,7 +7240,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "10µF 16V"
+		(property "Value" "22µF 25V"
 			(at 148.59 129.5462 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -7094,7 +7284,7 @@
 				)
 			)
 		)
-		(property "Order" "CL21A106KOQNNNF"
+		(property "Order" "CL21A226MAQNNNE"
 			(at 146.05 128.27 0)
 			(hide yes)
 			(show_name no)
@@ -7508,6 +7698,84 @@
 			(project "conti_activate_plug"
 				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
 					(reference "#PWR021")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 109.22 72.39 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "4440632d-637a-460e-a028-35c01cc6328b")
+		(property "Reference" "#PWR05"
+			(at 109.22 78.74 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "GND"
+			(at 109.22 77.47 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 109.22 72.39 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 109.22 72.39 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 109.22 72.39 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "0278531e-fb1c-4742-910c-cdb085146c87")
+		)
+		(instances
+			(project "conti_activate_plug"
+				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
+					(reference "#PWR05")
 					(unit 1)
 				)
 			)
@@ -8192,6 +8460,97 @@
 		)
 	)
 	(symbol
+		(lib_id "Device:R_Small")
+		(at 102.87 152.4 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "53e62cbd-3a7d-4da4-a7d2-aa19c11aedec")
+		(property "Reference" "R4"
+			(at 102.87 147.32 90)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.016 1.016)
+				)
+			)
+		)
+		(property "Value" "33k"
+			(at 102.87 149.86 90)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 102.87 152.4 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 102.87 152.4 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Resistor, small symbol"
+			(at 102.87 152.4 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" "C4216"
+			(at 102.87 152.4 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "b5ff57dc-3b0b-451b-abdd-00819aa246ad")
+		)
+		(pin "2"
+			(uuid "42e4c56e-2e7d-4e61-bcde-3df18449bc86")
+		)
+		(instances
+			(project "conti_activate_plug"
+				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
+					(reference "R4")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Diode:US1A")
 		(at 45.72 115.57 90)
 		(unit 1)
@@ -8414,6 +8773,99 @@
 			(project "conti_activate_plug"
 				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
 					(reference "D13")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R_Small")
+		(at 109.22 68.58 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "605133fc-2378-4a7a-8812-c314a8067ee8")
+		(property "Reference" "R17"
+			(at 111.76 67.3099 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.016 1.016)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "33k"
+			(at 111.76 69.8499 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 109.22 68.58 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 109.22 68.58 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Resistor, small symbol"
+			(at 109.22 68.58 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" "C4216"
+			(at 109.22 68.58 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "4493ebfd-0a1f-4ea5-aeb9-54244af84c57")
+		)
+		(pin "2"
+			(uuid "12594c45-fba0-418b-8ca7-81ea7842e0a5")
+		)
+		(instances
+			(project "conti_activate_plug"
+				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
+					(reference "R17")
 					(unit 1)
 				)
 			)
@@ -8836,6 +9288,99 @@
 			(project "conti_activate_plug"
 				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
 					(reference "C7")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R_Small")
+		(at 40.64 176.53 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "6fd60795-927f-4bad-b0e5-37c0e70dd818")
+		(property "Reference" "R16"
+			(at 43.18 175.2599 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.016 1.016)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "100k"
+			(at 43.18 177.7999 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 40.64 176.53 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 40.64 176.53 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Resistor, small symbol"
+			(at 40.64 176.53 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" "C25803"
+			(at 40.64 176.53 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "510dbc19-9e2c-4514-b5de-0f740fc54246")
+		)
+		(pin "2"
+			(uuid "c2e02f0b-e439-4e4c-956d-264e37e8099f")
+		)
+		(instances
+			(project "conti_activate_plug"
+				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
+					(reference "R16")
 					(unit 1)
 				)
 			)
@@ -9582,6 +10127,192 @@
 		)
 	)
 	(symbol
+		(lib_id "Device:R_Small")
+		(at 106.68 176.53 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "8e0ee808-3f01-4507-a824-c4175c07706d")
+		(property "Reference" "R5"
+			(at 109.22 175.2599 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.016 1.016)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "100k"
+			(at 109.22 177.7999 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 106.68 176.53 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 106.68 176.53 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Resistor, small symbol"
+			(at 106.68 176.53 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" "C25803"
+			(at 106.68 176.53 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "84ddc662-7f90-4a9d-9ad9-c99a74136bd3")
+		)
+		(pin "2"
+			(uuid "cd6f8f81-9e21-4f7d-b669-76d0e9bda817")
+		)
+		(instances
+			(project "conti_activate_plug"
+				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
+					(reference "R5")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R_Small")
+		(at 80.01 176.53 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "95a62ab7-f1a0-42bb-85d1-3431de7c3726")
+		(property "Reference" "R7"
+			(at 82.55 175.2599 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.016 1.016)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "100k"
+			(at 82.55 177.7999 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 80.01 176.53 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 80.01 176.53 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Resistor, small symbol"
+			(at 80.01 176.53 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" "C25803"
+			(at 80.01 176.53 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "511d13a6-6a37-4478-80aa-70b6462c0c93")
+		)
+		(pin "2"
+			(uuid "2ae76baa-63c3-41ba-835c-35655f390cff")
+		)
+		(instances
+			(project "conti_activate_plug"
+				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
+					(reference "R7")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "power:GND")
 		(at 25.4 113.03 0)
 		(unit 1)
@@ -9794,6 +10525,17 @@
 			)
 		)
 		(property "Description" "Resistor, small symbol"
+			(at 63.5 166.37 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" "C23178"
 			(at 63.5 166.37 0)
 			(hide yes)
 			(show_name no)
@@ -10063,6 +10805,99 @@
 			(project "conti_activate_plug"
 				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
 					(reference "#PWR02")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R_Small")
+		(at 109.22 60.96 180)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "b5f73559-977c-4131-9748-d295548231f8")
+		(property "Reference" "R18"
+			(at 111.76 59.6899 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.016 1.016)
+				)
+				(justify right)
+			)
+		)
+		(property "Value" "1M"
+			(at 111.76 62.2299 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 109.22 60.96 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 109.22 60.96 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Resistor, small symbol"
+			(at 109.22 60.96 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" "C22935"
+			(at 109.22 60.96 90)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "d197246d-12ea-48c9-a27d-04a51a2acf94")
+		)
+		(pin "2"
+			(uuid "2ac3fe3d-899a-4de9-9518-58883c3ab8f4")
+		)
+		(instances
+			(project "conti_activate_plug"
+				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
+					(reference "R18")
 					(unit 1)
 				)
 			)
@@ -10632,6 +11467,99 @@
 		)
 	)
 	(symbol
+		(lib_id "Device:R_Small")
+		(at 72.39 133.35 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "cdf5b2a7-0991-4413-992e-24fadcf32b16")
+		(property "Reference" "R19"
+			(at 74.93 132.0799 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.016 1.016)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "100k"
+			(at 74.93 134.6199 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 72.39 133.35 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 72.39 133.35 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Resistor, small symbol"
+			(at 72.39 133.35 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" "C25803"
+			(at 72.39 133.35 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "7308cd08-7dc6-4bcd-8167-0f9bd3b1f181")
+		)
+		(pin "2"
+			(uuid "dcbdcf53-2db9-4f93-9ac8-6eb8b1c5156c")
+		)
+		(instances
+			(project "conti_activate_plug"
+				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
+					(reference "R19")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Mechanical:MountingHole")
 		(at 250.19 121.92 0)
 		(unit 1)
@@ -10859,6 +11787,97 @@
 			(project "conti_activate_plug"
 				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
 					(reference "#PWR016")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R_Small")
+		(at 69.85 130.81 90)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "d4988ab7-0047-4ae3-ae8b-e63c069abbcc")
+		(property "Reference" "R20"
+			(at 69.85 125.73 90)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.016 1.016)
+				)
+			)
+		)
+		(property "Value" "470k"
+			(at 69.85 128.27 90)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 69.85 130.81 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 69.85 130.81 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Resistor, small symbol"
+			(at 69.85 130.81 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" "C23178"
+			(at 69.85 130.81 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "1cd3d874-6981-4f7c-ac26-6c996de7a255")
+		)
+		(pin "2"
+			(uuid "87e09b73-ad3a-42b5-bd4a-6b7e77141275")
+		)
+		(instances
+			(project "conti_activate_plug"
+				(path "/e92ebd24-1880-4bbb-96db-1fc0a486f61a"
+					(reference "R20")
 					(unit 1)
 				)
 			)
