@@ -1,0 +1,30 @@
+menu "Hardware Variant"
+
+    choice HW_VARIANT
+        prompt "Select hardware variant"
+        default HW_VARIANT_SUPERMINI
+        help
+            Select the target hardware board variant.
+
+        config HW_VARIANT_SUPERMINI
+            bool "ESP32-C3 SuperMini"
+            help
+                Original SuperMini board.
+                GPIO5 = WakeupPD0V, GPIO6 = WakeupPU_BAT.
+                GPIO3 = CAN_Shutdown ADC (diagnostic).
+                GPIO0 = Vbat measurement.
+
+        config HW_VARIANT_OLED
+            bool "ESP32-C3 OLED (0.42\" I2C display, SSD1306 72x40)"
+            help
+                OLED variant with 0.42\" SSD1306 I2C display.
+                GPIO5 = OLED SDA, GPIO6 = OLED SCL.
+                GPIO1 = WakeupPU_BAT, GPIO3 = WakeupPD0V.
+                GPIO0 = Vbat measurement.
+                GPIO4 = WakeupDetect ADC.
+                GPIO7 = WakeupPD12V, GPIO10 = CAN TX,
+                GPIO20 = CAN RX, GPIO21 = CAN Standby.
+
+    endchoice
+
+endmenu
