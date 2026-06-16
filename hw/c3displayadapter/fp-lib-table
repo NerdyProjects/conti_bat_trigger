@@ -1,0 +1,4 @@
+(fp_lib_table
+	(version 7)
+	(lib (name "esp32-c3-supermini-oled") (type "KiCad") (uri "${KIPRJMOD}/esp32-c3-supermini-oled.pretty") (options "") (descr ""))
+)
