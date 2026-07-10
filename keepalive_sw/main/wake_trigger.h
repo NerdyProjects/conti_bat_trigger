@@ -27,7 +27,8 @@
 
 /* -----------------------------------------------------------------------
  * Build-time mode selection
- * Set to 1 for permanent mode, 0 for charge/discharge detection.
+ * Set to 1 for permanent mode that keeps the battery permanently in
+ * discharge state, 0 for charge/discharge detection and key control.
  * --------------------------------------------------------------------- */
 #define WAKE_USE_PERMANENT_MODE  0
 
@@ -39,7 +40,7 @@
 #define WAKE_PULSE_MS            50
 
 /* How long to listen for CAN messages before falling back to charge mode. */
-#define WAKE_STARTUP_WAIT_MS     5000
+#define WAKE_CAN_WAIT_MS     5000
 
 /* -----------------------------------------------------------------------
  * Public types

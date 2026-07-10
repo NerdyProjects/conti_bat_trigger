@@ -16,7 +16,7 @@
  * --------------------------------------------------------------------- */
 
 typedef enum {
-    STATE_STARTUP_WAIT,    /**< Wait up to 3 s for any decoded CAN message */
+    STATE_WAIT_CAN,    /**< Wait up to 3 s for any decoded CAN message */
     STATE_ENTER_CHARGE,    /**< Apply one-shot charge or deep wakeup pulse  */
     STATE_ENTER_DISCHARGE, /**< Enable periodic keepalive TX                */
     STATE_ENTER_PERMANENT, /**< Apply wakeup pulse AND enable keepalive TX  */
@@ -38,6 +38,16 @@ static bool can_msg_received(void)
     return bat.data_valid;
 }
 
+
+static void release_wakeups(void)
+{
+    ESP_LOGI(TAG, "Release all Wakeups");
+    gpio_set_wakeup_pd12v(false);
+    gpio_set_wakeup_pd0v(false);
+    gpio_set_wakeup_pu_bat(false);
+}
+
+
 /**
  * @brief Charge wakeup trigger.
  *        Sets PD12V (kept asserted), then pulses PD0V for WAKE_PULSE_MS ms,
@@ -46,19 +56,12 @@ static bool can_msg_received(void)
 static void do_charge_wakeup(void)
 {
     ESP_LOGI(TAG, "Charge wakeup: PD12V on, PD0V pulse %d ms", WAKE_PULSE_MS);
+    release_wakeups();
     gpio_set_wakeup_pd12v(true);
     gpio_set_wakeup_pd0v(true);
     vTaskDelay(pdMS_TO_TICKS(WAKE_PULSE_MS));
     gpio_set_wakeup_pd0v(false);
     ESP_LOGI(TAG, "Charge wakeup done");
-}
-
-static void release_wakeups(void)
-{
-    ESP_LOGI(TAG, "Release all Wakeups");
-    gpio_set_wakeup_pd12v(false);
-    gpio_set_wakeup_pd0v(false);
-    gpio_set_wakeup_pu_bat(false);
 }
 
 /**
@@ -70,6 +73,8 @@ static void do_deep_wakeup(void)
 {
     ESP_LOGI(TAG, "Deep wakeup: PD12V on, PU_BAT on, PD0V pulse %d ms",
              WAKE_PULSE_MS);
+    release_wakeups();
+    vTaskDelay(pdMS_TO_TICKS(100));
     gpio_set_wakeup_pd12v(true);
     gpio_set_wakeup_pu_bat(true);
     gpio_set_wakeup_pd0v(true);
@@ -105,11 +110,14 @@ static void wake_trigger_task(void *arg)
 #if WAKE_USE_PERMANENT_MODE
     state = STATE_ENTER_PERMANENT;
 #else
-    state = STATE_STARTUP_WAIT;
+    state = STATE_WAIT_CAN;
 #endif
 
+    int button = 0;
+    int last_button = 0;
     while (1) {
         float wakeup_detect = adc_get_wakeup_detect_voltage();
+        button = wakeup_detect < 5;
         switch (state) {
 
         /* -----------------------------------------------------------------
@@ -118,14 +126,14 @@ static void wake_trigger_task(void *arg)
          * Exit immediately to discharge on first detected message.
          * Fall through to charge mode on timeout.
          * --------------------------------------------------------------- */
-        case STATE_STARTUP_WAIT: {
+        case STATE_WAIT_CAN: {
             int elapsed_ms = 0;
             bool got_msg   = false;
 
             ESP_LOGI(TAG, "Startup: waiting up to %d ms for CAN message",
-                     WAKE_STARTUP_WAIT_MS);
+                     WAKE_CAN_WAIT_MS);
 
-            while (elapsed_ms < WAKE_STARTUP_WAIT_MS) {
+            while (elapsed_ms < WAKE_CAN_WAIT_MS) {
                 if (can_msg_received()) {
                     got_msg = true;
                     break;
@@ -139,7 +147,7 @@ static void wake_trigger_task(void *arg)
                 state = STATE_ENTER_DISCHARGE;
             } else {
                 ESP_LOGI(TAG, "No CAN message within %d ms → charge mode",
-                         WAKE_STARTUP_WAIT_MS);
+                         WAKE_CAN_WAIT_MS);
                 state = STATE_ENTER_CHARGE;
             }
             break;
@@ -164,70 +172,33 @@ static void wake_trigger_task(void *arg)
             can_set_periodic_send(true);
             ESP_LOGI(TAG, "Discharge mode: periodic keepalive TX enabled");
             // wait in this state until button has been released
-            if (wakeup_detect > 1) {
+            if (!button) {
                 state = STATE_IDLE;
             }
             break;
 
-        /* -----------------------------------------------------------------
-         * ENTER_PERMANENT
-         * Apply wakeup trigger and enable periodic keepalive TX.
-         * --------------------------------------------------------------- */
-        case STATE_ENTER_PERMANENT:
-            s_current_mode = WAKE_MODE_PERMANENT;
-            apply_wakeup_trigger();
-            can_set_periodic_send(true);
-            ESP_LOGI(TAG, "Permanent mode active");
-            state = STATE_IDLE;
-            break;
-
+        
         /* -----------------------------------------------------------------
          * IDLE  –  all actions complete
          * --------------------------------------------------------------- */
         case STATE_IDLE:
-            // Button press detected -> Debounce
-            if (wakeup_detect < 1) {
-                state = STATE_BUTTON_WAIT;
-            }
-            vTaskDelay(pdMS_TO_TICKS(50));
-            break;
-
-        case STATE_BUTTON_WAIT:
-            // Button press detected, at least 50ms
-            if (wakeup_detect < 1) {
-                // (at least) short press: stop charging, wait for long button press                
+            // Button unpress
+            if (last_button && !button) {
+                gpio_set_led(false);
                 release_wakeups();
-                can_set_periodic_send(false);
-                if (s_current_mode != WAKE_MODE_NONE) {
-                    s_current_mode = WAKE_MODE_NONE;
-                } else if (s_current_mode == WAKE_MODE_NONE) {
-                    s_current_mode = WAKE_MODE_CHARGE;                
+                if (s_current_mode == WAKE_MODE_NONE) {
+                    state = STATE_WAIT_CAN;
+                } else {
+                  s_current_mode = WAKE_MODE_NONE;
                 }
-                state = STATE_BUTTON_WAIT_2;
-            } else {
-                // nothing, ignore
-                state = STATE_IDLE;
-            }
-            vTaskDelay(pdMS_TO_TICKS(500));
-            break;
-        case STATE_BUTTON_WAIT_2:
-            // long button press: startup detect: charge or discharge
-            if (wakeup_detect < 1) {
-                state = STATE_STARTUP_WAIT;
-                vTaskDelay(pdMS_TO_TICKS(500));
-            } else {
-                // short button press: Toggle Charge mode, idle
-                if (s_current_mode == WAKE_MODE_CHARGE) {
-                    apply_wakeup_trigger();
-                }
-                state = STATE_IDLE;
             }
             break;
-
         default:
             state = STATE_IDLE;
             break;
         }
+        last_button = button;
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
 
