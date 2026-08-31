@@ -115,9 +115,15 @@ static void wake_trigger_task(void *arg)
 
     int button = 0;
     int last_button = 0;
+    int cycle_count = 0;
+    int bat_percent = 0;
     while (1) {
         float wakeup_detect = adc_get_wakeup_detect_voltage();
         button = wakeup_detect < 5;
+        if ((cycle_count % 100) == 0) {
+            bat_percent = adc_get_vbat_percent();
+        }
+
         switch (state) {
 
         /* -----------------------------------------------------------------
@@ -170,6 +176,7 @@ static void wake_trigger_task(void *arg)
         case STATE_ENTER_DISCHARGE:
             s_current_mode = WAKE_MODE_DISCHARGE;
             can_set_periodic_send(true);
+            gpio_set_led(true);
             ESP_LOGI(TAG, "Discharge mode: periodic keepalive TX enabled");
             // wait in this state until button has been released
             if (!button) {
@@ -186,11 +193,15 @@ static void wake_trigger_task(void *arg)
             if (last_button && !button) {
                 gpio_set_led(false);
                 release_wakeups();
+                can_set_periodic_send(false);
                 if (s_current_mode == WAKE_MODE_NONE) {
                     state = STATE_WAIT_CAN;
                 } else {
                   s_current_mode = WAKE_MODE_NONE;
                 }
+            }
+            if (s_current_mode == WAKE_MODE_CHARGE) {
+                gpio_set_led((cycle_count % 100) < bat_percent );
             }
             break;
         default:
@@ -198,7 +209,8 @@ static void wake_trigger_task(void *arg)
             break;
         }
         last_button = button;
-        vTaskDelay(pdMS_TO_TICKS(20));
+        cycle_count++;
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
 

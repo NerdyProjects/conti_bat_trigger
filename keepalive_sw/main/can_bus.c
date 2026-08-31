@@ -258,7 +258,7 @@ can_battery_data_t can_get_battery_data(void)
     tmp = s_bat_data;
     tmp.rate_hz = rate_buf_hz(&s_bat_rate, now);
     portEXIT_CRITICAL(&s_mux);
-    tmp.data_valid = (now - tmp.last_rx_us) < 1000000;    
+    tmp.data_valid = tmp.last_rx_us != 0 && ((now - tmp.last_rx_us) < 1000000);    
     return tmp;
 }
 

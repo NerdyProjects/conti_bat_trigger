@@ -99,6 +99,17 @@ float adc_get_vbat_voltage(void)
     return (float)mv / 1000.0f * VDIV_NUM / VDIV_DEN;
 }
 
+int adc_get_vbat_percent(void)
+{
+    float v = adc_get_vbat_voltage();
+    v -= 33.0; // Linear from 33..42V; 42-33 = 9; 9->100
+    if (v < 0) {
+        v = 0;
+    }
+    v *= (100.0/9.0);
+    return (v > 100) ? 100 : v;
+}
+
 float adc_get_wakeup_detect_voltage(void)
 {
     int mv = read_mv(CH_WAKEUP_DETECT, s_cali_wdet, s_cali_wdet_ok);

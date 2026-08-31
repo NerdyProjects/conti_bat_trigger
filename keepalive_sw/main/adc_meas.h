@@ -34,6 +34,8 @@ float adc_get_vbat_voltage(void);
  */
 float adc_get_wakeup_detect_voltage(void);
 
+int adc_get_vbat_percent(void);
+
 #ifdef CONFIG_HW_VARIANT_OLED
 /** CAN_SHUTDOWN ADC not available on OLED variant (GPIO3 is digital output). */
 static inline float adc_get_can_shutdown_voltage(void) { return 0.0f; }
