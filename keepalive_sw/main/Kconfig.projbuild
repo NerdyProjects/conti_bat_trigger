@@ -28,3 +28,15 @@ menu "Hardware Variant"
     endchoice
 
 endmenu
+
+menu "CAN Log"
+
+    config HW_CAN_LOG_ENTRIES
+        int "CAN log ring buffer size (entries)"
+        range 256 8192
+        default 2048
+        help
+            Number of CAN messages kept in RAM for the /canlog viewer.
+            Each entry uses ~20 bytes, so 2048 entries need about 40 KB.
+
+endmenu

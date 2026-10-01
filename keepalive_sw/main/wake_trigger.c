@@ -31,11 +31,17 @@ static volatile wake_mode_t s_current_mode = WAKE_MODE_NONE;
  * Helpers
  * --------------------------------------------------------------------- */
 
-/** Return true if at least one decoded CAN message has been received. */
+/**
+ * @brief Return true if the STM (SmartPCB) is powered and sending.
+ *
+ * Uses the STM's own ~10 ms heartbeat CAN_ID_STM_ALIVE (0x1B5) rather than a
+ * BMS frame: 0x404 only appears once the battery is already switched on, so
+ * using it would dead-lock the discharge path and break the no-CAN charge
+ * mode.  0x1B5 is present as soon as the STM is powered.
+ */
 static bool can_msg_received(void)
 {
-    can_battery_data_t bat  = can_get_battery_data();
-    return bat.data_valid;
+    return can_id_seen_recently(WAKE_CAN_DETECT_ID, WAKE_CAN_DETECT_TIMEOUT_MS);
 }
 
 
@@ -149,10 +155,11 @@ static void wake_trigger_task(void *arg)
             }
 
             if (got_msg) {
-                ESP_LOGI(TAG, "CAN message detected → discharge mode");
+                ESP_LOGI(TAG, "CAN traffic detected (0x%03X) → discharge mode",
+                         (unsigned)WAKE_CAN_DETECT_ID);
                 state = STATE_ENTER_DISCHARGE;
             } else {
-                ESP_LOGI(TAG, "No CAN message within %d ms → charge mode",
+                ESP_LOGI(TAG, "No CAN traffic within %d ms → charge mode",
                          WAKE_CAN_WAIT_MS);
                 state = STATE_ENTER_CHARGE;
             }

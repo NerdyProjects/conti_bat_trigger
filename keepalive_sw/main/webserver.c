@@ -18,6 +18,13 @@
 extern const uint8_t main_page_start[] asm("_binary_index_html_start");
 extern const uint8_t main_page_end[]   asm("_binary_index_html_end");
 
+/* CAN log viewer page (web/canlog.html) */
+extern const uint8_t canlog_page_start[] asm("_binary_canlog_html_start");
+extern const uint8_t canlog_page_end[]   asm("_binary_canlog_html_end");
+
+/** Maximum number of log entries returned in a single API response. */
+#define CAN_LOG_MAX_CHUNK 256
+
 
 /* -----------------------------------------------------------------------
  * Request handlers
@@ -43,7 +50,7 @@ static esp_err_t handler_status(httpd_req_t *req)
     float bat_age_s  = bat.data_valid     ? (float)(now_us - bat.last_rx_us)  / 1e6f : -1.0f;
     float x1b2_age_s = x1b2.ever_received ? (float)(now_us - x1b2.last_rx_us) / 1e6f : -1.0f;
 
-    char buf[640];
+    char buf[704];
     int len = snprintf(buf, sizeof(buf),
         "{"
         "\"boot_btn\":%s,"
@@ -54,6 +61,7 @@ static esp_err_t handler_status(httpd_req_t *req)
         "\"pu_bat\":%s,"
         "\"pd12v\":%s,"
         "\"can_periodic\":%s,"
+        "\"test55_periodic\":%s,"
         "\"bat_current\":%d,"
         "\"bat_voltage\":%u,"
         "\"bat_soc\":%u,"
@@ -71,6 +79,7 @@ static esp_err_t handler_status(httpd_req_t *req)
         gpio_get_wakeup_pu_bat() ? "true" : "false",
         gpio_get_wakeup_pd12v()  ? "true" : "false",
         can_get_periodic_send()  ? "true" : "false",
+        can_get_periodic_55()    ? "true" : "false",
         (int)bat.current_raw,
         (unsigned)bat.voltage_raw,
         (unsigned)bat.soc_percent,
@@ -154,6 +163,98 @@ static esp_err_t handler_can_frames(httpd_req_t *req)
     return ESP_OK;
 }
 
+static esp_err_t handler_can_test55(httpd_req_t *req)
+{
+    can_set_periodic_55(!can_get_periodic_55());
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
+/**
+ * GET /api/can/log?since=<seq>&max=<n>
+ * Returns log entries with sequence number >= since (oldest first).
+ */
+static esp_err_t handler_can_log(httpd_req_t *req)
+{
+    uint32_t since = 0;
+    int max_entries = CAN_LOG_MAX_CHUNK;
+
+    char qbuf[80];
+    if (httpd_req_get_url_query_str(req, qbuf, sizeof(qbuf)) == ESP_OK) {
+        char val[24];
+        if (httpd_query_key_value(qbuf, "since", val, sizeof(val)) == ESP_OK) {
+            since = (uint32_t)strtoul(val, NULL, 10);
+        }
+        if (httpd_query_key_value(qbuf, "max", val, sizeof(val)) == ESP_OK) {
+            long m = strtol(val, NULL, 10);
+            if (m > 0 && m <= CAN_LOG_MAX_CHUNK) {
+                max_entries = (int)m;
+            }
+        }
+    }
+
+    can_log_entry_t *entries = malloc((size_t)max_entries * sizeof(*entries));
+    if (!entries) {
+        httpd_resp_send_500(req);
+        return ESP_ERR_NO_MEM;
+    }
+
+    uint32_t next = since;
+    int n = can_log_get(since, entries, max_entries, &next);
+    uint32_t total = can_log_total();
+    uint32_t first = next - (uint32_t)n;   /* accounts for ring-buffer clamp */
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+
+    char head[80];
+    snprintf(head, sizeof(head),
+             "{\"total\":%u,\"next\":%u,\"entries\":[",
+             (unsigned)total, (unsigned)next);
+    httpd_resp_sendstr_chunk(req, head);
+
+    for (int i = 0; i < n; i++) {
+        can_log_entry_t *e = &entries[i];
+        char data_str[25] = "";
+        int dp = 0;
+        for (int b = 0; b < e->dlc && b < 8; b++) {
+            dp += snprintf(data_str + dp, sizeof(data_str) - dp,
+                           b > 0 ? " %02X" : "%02X", e->data[b]);
+        }
+        char chunk[160];
+        snprintf(chunk, sizeof(chunk),
+                 "%s{\"seq\":%u,\"t\":%u,\"id\":\"0x%03X\",\"dlc\":%u,"
+                 "\"data\":\"%s\",\"tx\":%s}",
+                 i > 0 ? "," : "",
+                 (unsigned)(first + (uint32_t)i), (unsigned)e->ts_ms,
+                 (unsigned)e->id, (unsigned)e->dlc, data_str,
+                 e->tx ? "true" : "false");
+        httpd_resp_sendstr_chunk(req, chunk);
+    }
+    httpd_resp_sendstr_chunk(req, "]}");
+    httpd_resp_sendstr_chunk(req, NULL);
+    free(entries);
+    return ESP_OK;
+}
+
+/** POST /api/can/log/clear — discard all logged entries. */
+static esp_err_t handler_can_log_clear(httpd_req_t *req)
+{
+    can_log_clear();
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
+/** GET /canlog — CAN message log viewer page. */
+static esp_err_t handler_canlog(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_send(req, (const char *)canlog_page_start,
+                    canlog_page_end - canlog_page_start);
+    return ESP_OK;
+}
+
 /*
  * Serve OTA update portal (index.html)
  */
@@ -222,10 +323,11 @@ void webserver_init(void)
 {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.stack_size = 6144;
-    cfg.max_uri_handlers = 10;
+    cfg.max_uri_handlers = 16;
 
     static const httpd_uri_t uris[] = {
         {.uri = "/", .method = HTTP_GET, .handler = handler_root},
+        {.uri = "/canlog", .method = HTTP_GET, .handler = handler_canlog},
         {.uri = "/api/status", .method = HTTP_GET, .handler = handler_status},
         {.uri = "/api/wakeup/pd0v",
          .method = HTTP_POST,
@@ -239,9 +341,18 @@ void webserver_init(void)
         {.uri = "/api/can/periodic",
          .method = HTTP_POST,
          .handler = handler_can_periodic},
+        {.uri = "/api/can/test55",
+         .method = HTTP_POST,
+         .handler = handler_can_test55},
         {.uri = "/api/can/frames",
          .method = HTTP_GET,
          .handler = handler_can_frames},
+        {.uri = "/api/can/log",
+         .method = HTTP_GET,
+         .handler = handler_can_log},
+        {.uri = "/api/can/log/clear",
+         .method = HTTP_POST,
+         .handler = handler_can_log_clear},
         {.uri = "/update",
          .method = HTTP_GET,
          .handler = index_get_handler,

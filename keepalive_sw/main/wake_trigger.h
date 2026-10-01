@@ -1,5 +1,6 @@
 #pragma once
 #include <stdbool.h>
+#include "can_bus.h"
 
 /**
  * @file wake_trigger.h
@@ -7,17 +8,19 @@
  *
  * Modes
  * -----
- *   CHARGE    – Entered when no CAN traffic is detected within the 3 s
- *               startup window.  A wakeup trigger pulse is applied once:
+ *   CHARGE    – Entered when no CAN traffic is detected within the
+ *               WAKE_CAN_WAIT_MS startup window.  A wakeup trigger pulse is
+ *               applied once:
  *               * wakeup-detect > WAKE_CHARGE_THRESH_V  → charge wakeup
  *               * wakeup-detect ≤ WAKE_CHARGE_THRESH_V  → deep wakeup
  *
- *   DISCHARGE – Entered immediately when a CAN message is decoded during
- *               the 3 s startup window.  Periodic keepalive TX is enabled.
+ *   DISCHARGE – Entered immediately when CAN traffic is detected during
+ *               the WAKE_CAN_WAIT_MS startup window.  Periodic keepalive TX
+ *               is enabled.
  *
  *   PERMANENT – Selected at compile time via WAKE_USE_PERMANENT_MODE.
  *               Combines the charge wakeup trigger with periodic keepalive
- *               TX; the 3 s CAN detection window is skipped.
+ *               TX; the CAN detection window is skipped.
  *
  * Build-time switch
  * -----------------
@@ -41,6 +44,20 @@
 
 /* How long to listen for CAN messages before falling back to charge mode. */
 #define WAKE_CAN_WAIT_MS     5000
+
+/* -----------------------------------------------------------------------
+ * CAN presence detection (used to choose discharge over charge mode)
+ *
+ * "CAN present" = the STM heartbeat has been received within
+ * WAKE_CAN_DETECT_TIMEOUT_MS.  0x1B5 is transmitted by the STM/SmartPCB every
+ * ~10 ms as soon as it is powered, independently of the BMS state.
+ *
+ * Do NOT use BMS frames (0x404/0x405/0x407) here: they only appear once the
+ * battery is already switched on, so discharge mode could never start the
+ * wake-up sequence, and the no-CAN charge path would be broken as well.
+ * --------------------------------------------------------------------- */
+#define WAKE_CAN_DETECT_ID          CAN_ID_STM_ALIVE
+#define WAKE_CAN_DETECT_TIMEOUT_MS  500
 
 /* -----------------------------------------------------------------------
  * Public types

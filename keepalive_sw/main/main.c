@@ -12,6 +12,28 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+/**
+ * @brief Sample the analog vehicle inputs at a fixed rate and append them to
+ *        the CAN log so the "12 V half-on" and "35-42 V on" states can be
+ *        correlated with the CAN traffic in the /canlog viewer.
+ *        Payload: wakeup-detect, Vbat, CAN-shutdown (all millivolts, LE).
+ */
+static void telemetry_task(void *arg)
+{
+    while (1) {
+        uint16_t w = (uint16_t)(adc_get_wakeup_detect_voltage() * 1000.0f);
+        uint16_t v = (uint16_t)(adc_get_vbat_voltage() * 1000.0f);
+        uint16_t s = (uint16_t)(adc_get_can_shutdown_voltage() * 1000.0f);
+        uint8_t  d[6] = {
+            (uint8_t)(w & 0xFF), (uint8_t)(w >> 8),
+            (uint8_t)(v & 0xFF), (uint8_t)(v >> 8),
+            (uint8_t)(s & 0xFF), (uint8_t)(s >> 8),
+        };
+        can_log_append(CAN_LOG_ID_ANALOG, sizeof(d), d);
+        vTaskDelay(pdMS_TO_TICKS(250));
+    }
+}
+
 void app_main(void)
 {
     gpio_ctrl_init();     /* Wakeup outputs, LED, boot button         */
@@ -21,6 +43,7 @@ void app_main(void)
     webserver_init();     /* HTTP server with status page and API      */
     wake_trigger_init();  /* Battery wake trigger state machine        */
     oled_display_init();  /* OLED display (OLED variant only; no-op otherwise) */
+    xTaskCreate(telemetry_task, "can_telemetry", 2560, NULL, 2, NULL);
 
     gpio_set_led(true); /* LED on: system running */
 

@@ -8,6 +8,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 
 #define TAG "CAN"
 
@@ -55,7 +56,40 @@ static rate_buf_t          s_1b2_rate   = {0};
 static can_frame_entry_t   s_frame_table[CAN_FRAME_TABLE_SIZE];
 static portMUX_TYPE        s_mux        = portMUX_INITIALIZER_UNLOCKED;
 static bool                s_periodic   = false;
+static bool                s_periodic55 = false;
 static esp_timer_handle_t  s_timer      = NULL;
+static esp_timer_handle_t  s_timer55    = NULL;
+
+/* ---------- Chronological message log ---------- */
+
+static can_log_entry_t     s_log[CAN_LOG_SIZE];
+static uint32_t            s_log_head  = 0;   /* next write index           */
+static uint32_t            s_log_total = 0;   /* entries ever written       */
+static SemaphoreHandle_t   s_log_mux   = NULL;
+
+/* Append one frame to the log (safe to call from task/timer context). */
+static void log_add(uint32_t id, uint8_t dlc, const uint8_t *data, bool tx,
+                    int64_t now_us)
+{
+    if (s_log_mux == NULL) {
+        return;
+    }
+    uint8_t len = dlc > 8 ? 8 : dlc;
+    if (xSemaphoreTake(s_log_mux, portMAX_DELAY) != pdTRUE) {
+        return;
+    }
+    can_log_entry_t *e = &s_log[s_log_head];
+    e->ts_ms = (uint32_t)(now_us / 1000);
+    e->id    = id;
+    e->dlc   = len;
+    e->tx    = tx;
+    for (int i = 0; i < len; i++) {
+        e->data[i] = data[i];
+    }
+    s_log_head = (s_log_head + 1) % CAN_LOG_SIZE;
+    s_log_total++;
+    xSemaphoreGive(s_log_mux);
+}
 
 /* ---------- Generic frame table update ---------- */
 
@@ -128,6 +162,9 @@ static void can_rx_task(void *arg)
                            (uint8_t)twaifd_dlc2len(msg.header.dlc),
                            msg.data, now);
 
+        log_add(msg.header.id, (uint8_t)twaifd_dlc2len(msg.header.dlc),
+                msg.data, false, now);
+
         /* 
         0x404: Batterie Strom, Spannung, SOC
         0x406: Batterie Durchschnittsstrom*/
@@ -166,6 +203,11 @@ static void can_rx_task(void *arg)
 static void keepalive_timer_cb(void *arg)
 {
     can_send_keepalive();
+}
+
+static void test55_timer_cb(void *arg)
+{
+    can_send_55();
 }
 
 /* ---------- Public API ---------- */
@@ -214,6 +256,14 @@ void can_bus_init(void)
     };
     ESP_ERROR_CHECK(esp_timer_create(&timer_args, &s_timer));
 
+    esp_timer_create_args_t timer55_args = {
+        .callback = test55_timer_cb,
+        .name     = "can_test55",
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&timer55_args, &s_timer55));
+
+    s_log_mux = xSemaphoreCreateMutex();
+
     ESP_LOGI(TAG, "TWAI initialized at 250 kbit/s, TX=%d RX=%d",
              PIN_CAN_TX, PIN_CAN_RX);
 }
@@ -229,7 +279,29 @@ esp_err_t can_send_keepalive(void)
         .buffer     = tx_buf,
         .buffer_len = 4,
     };
-    return twai_node_transmit(s_node, &frame, 10);
+    esp_err_t err = twai_node_transmit(s_node, &frame, 10);
+    if (err == ESP_OK) {
+        log_add(CAN_ID_KEEPALIVE, 4, tx_buf, true, esp_timer_get_time());
+    }
+    return err;
+}
+
+esp_err_t can_send_55(void)
+{
+    uint8_t tx_buf[1] = {1};
+    twai_frame_t frame = {
+        .header = {
+            .id  = CAN_ID_TEST55,
+            .dlc = 1,
+        },
+        .buffer     = tx_buf,
+        .buffer_len = 1,
+    };
+    esp_err_t err = twai_node_transmit(s_node, &frame, 10);
+    if (err == ESP_OK) {
+        log_add(CAN_ID_TEST55, 1, tx_buf, true, esp_timer_get_time());
+    }
+    return err;
 }
 
 void can_set_periodic_send(bool enable)
@@ -239,7 +311,7 @@ void can_set_periodic_send(bool enable)
     }
     s_periodic = enable;
     if (enable) {
-        esp_timer_start_periodic(s_timer, 100 * 1000ULL);  /* 100 ms in µs */
+        esp_timer_start_periodic(s_timer, CAN_KEEPALIVE_PERIOD_MS * 1000ULL);
     } else {
         esp_timer_stop(s_timer);
     }
@@ -248,6 +320,24 @@ void can_set_periodic_send(bool enable)
 bool can_get_periodic_send(void)
 {
     return s_periodic;
+}
+
+void can_set_periodic_55(bool enable)
+{
+    if (enable == s_periodic55) {
+        return;
+    }
+    s_periodic55 = enable;
+    if (enable) {
+        esp_timer_start_periodic(s_timer55, 100 * 1000ULL);  /* 100 ms in µs */
+    } else {
+        esp_timer_stop(s_timer55);
+    }
+}
+
+bool can_get_periodic_55(void)
+{
+    return s_periodic55;
 }
 
 can_battery_data_t can_get_battery_data(void)
@@ -283,4 +373,78 @@ void can_get_all_frames(can_frame_entry_t *buf, int *count)
         }
     }
     portEXIT_CRITICAL(&s_mux);
+}
+
+bool can_id_seen_recently(uint32_t id, uint32_t within_ms)
+{
+    bool seen = false;
+    int64_t now = esp_timer_get_time();
+    portENTER_CRITICAL(&s_mux);
+    for (int i = 0; i < CAN_FRAME_TABLE_SIZE; i++) {
+        if (s_frame_table[i].used && s_frame_table[i].id == id) {
+            seen = (now - s_frame_table[i].last_rx_us) <
+                   ((int64_t)within_ms * 1000);
+            break;
+        }
+    }
+    portEXIT_CRITICAL(&s_mux);
+    return seen;
+}
+
+/* ---------- Chronological message log ---------- */
+
+int can_log_get(uint32_t since_seq, can_log_entry_t *buf,
+                int max_entries, uint32_t *out_next_seq)
+{
+    if (buf == NULL || max_entries <= 0 || s_log_mux == NULL) {
+        if (out_next_seq) *out_next_seq = since_seq;
+        return 0;
+    }
+    int n = 0;
+    xSemaphoreTake(s_log_mux, portMAX_DELAY);
+    uint32_t total = s_log_total;
+    uint32_t oldest = (total > CAN_LOG_SIZE) ? (total - CAN_LOG_SIZE) : 0u;
+    if (since_seq < oldest) {
+        since_seq = oldest;   /* requested range already overwritten */
+    }
+    if (since_seq > total) {
+        since_seq = total;    /* caller is ahead (e.g. log was cleared) */
+    }
+    uint32_t avail = total - since_seq;
+    if ((uint32_t)max_entries < avail) {
+        avail = (uint32_t)max_entries;
+    }
+    for (uint32_t i = 0; i < avail; i++) {
+        buf[n++] = s_log[(since_seq + i) % CAN_LOG_SIZE];
+    }
+    if (out_next_seq) *out_next_seq = since_seq + (uint32_t)n;
+    xSemaphoreGive(s_log_mux);
+    return n;
+}
+
+uint32_t can_log_total(void)
+{
+    if (s_log_mux == NULL) {
+        return 0;
+    }
+    xSemaphoreTake(s_log_mux, portMAX_DELAY);
+    uint32_t total = s_log_total;
+    xSemaphoreGive(s_log_mux);
+    return total;
+}
+
+void can_log_clear(void)
+{
+    if (s_log_mux == NULL) {
+        return;
+    }
+    xSemaphoreTake(s_log_mux, portMAX_DELAY);
+    s_log_head  = 0;
+    s_log_total = 0;
+    xSemaphoreGive(s_log_mux);
+}
+
+void can_log_append(uint32_t id, uint8_t dlc, const uint8_t *data)
+{
+    log_add(id, dlc, data, false, esp_timer_get_time());
 }

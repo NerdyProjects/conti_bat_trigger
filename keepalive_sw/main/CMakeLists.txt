@@ -10,7 +10,7 @@ idf_component_register(
         "oled_display.c"
     INCLUDE_DIRS
         "."
-    EMBED_TXTFILES web/ota.html web/index.html
+    EMBED_TXTFILES web/ota.html web/index.html web/canlog.html
     REQUIRES esp_wifi
     REQUIRES nvs_flash
     REQUIRES esp_http_server

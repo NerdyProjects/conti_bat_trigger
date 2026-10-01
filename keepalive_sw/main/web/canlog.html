@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CAN Log &ndash; Akku Controller</title>
+<style>
+body{font-family:sans-serif;max-width:980px;margin:16px auto;padding:0 12px;background:#eceff1}
+h1{color:#1a237e;margin-bottom:2px;font-size:1.4em}
+h2{margin:0 0 10px;color:#455a64;font-size:.9em;text-transform:uppercase;letter-spacing:.06em}
+a{color:#1a237e}
+.card{background:#fff;border-radius:10px;padding:12px 14px;margin:10px 0;box-shadow:0 1px 4px rgba(0,0,0,.18)}
+.btn{padding:7px 16px;margin:3px 4px 3px 0;border-radius:6px;border:2px solid #b0bec5;cursor:pointer;font-size:.86em;background:#eceff1;transition:background .15s,border-color .15s}
+.btn.on{background:#43a047;color:#fff;border-color:#2e7d32}
+.btn.danger{background:#ef5350;color:#fff;border-color:#c62828}
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
+.toolbar label{font-size:.84em;color:#455a64;display:flex;align-items:center;gap:4px}
+input[type=text]{padding:5px 8px;border:1px solid #b0bec5;border-radius:5px;font-size:.84em;width:110px}
+.status{font-size:.8em;color:#78909c;margin-top:6px}
+.tablewrap{overflow:auto;max-height:70vh;border-radius:8px}
+table{width:100%;border-collapse:collapse;font-size:.82em}
+th{position:sticky;top:0;background:#eceff1;text-align:left;padding:6px 8px;border-bottom:2px solid #b0bec5;white-space:nowrap;z-index:1}
+td{padding:3px 8px;border-bottom:1px solid #f0f0f0;white-space:nowrap}
+td.mono{font-family:monospace}
+tr.tx td{color:#00695c}
+tr.rx td{color:#37474f}
+tr:hover td{background:#f5f5f5}
+.dir{font-weight:700;font-size:.92em}
+.pill{display:inline-block;padding:1px 6px;border-radius:9px;background:#e3f2fd;color:#0d47a1;font-size:.85em}
+.pill.t{background:#e0f2f1;color:#00695c}
+.pill.s{background:#fff3e0;color:#e65100}
+tr.an td{color:#8d6e63;background:#fffdf7}
+</style>
+</head>
+<body>
+<h1>&#x1F4DC; CAN Log</h1>
+<div style="margin-bottom:6px"><a href="/">&larr; Zur&uuml;ck zur Statusseite</a></div>
+
+<div class="card">
+<h2>Steuerung</h2>
+<div class="toolbar">
+  <button class="btn" id="bPause" onclick="togglePause()">&#x23F8; Pause</button>
+  <button class="btn danger" onclick="clearLog()">&#x1F5D1; Leeren</button>
+  <button class="btn" onclick="downloadCsv()">&#x2B07; CSV</button>
+  <span style="width:12px"></span>
+  <label><input type="checkbox" id="fRx" checked onchange="applyFilter()"> RX</label>
+  <label><input type="checkbox" id="fTx" checked onchange="applyFilter()"> TX</label>
+  <label><input type="checkbox" id="fAn" checked onchange="applyFilter()"> Analog</label>
+  <label>ID <input type="text" id="fId" placeholder="z.B. 404" oninput="applyFilter()"></label>
+  <label><input type="checkbox" id="fScroll" checked> Auto-Scroll</label>
+</div>
+<div class="toolbar" style="margin-top:8px">
+  <span style="font-size:.84em;color:#455a64">Test-Sender:</span>
+  <button class="btn" id="bKeepalive" onclick="tog('/api/can/periodic')">Keepalive 0x201</button>
+  <button class="btn" id="b55" onclick="tog('/api/can/test55')">Test 0x55 (100&thinsp;ms)</button>
+</div>
+<div class="status" id="status">Lade&hellip;</div>
+</div>
+
+<div class="card" style="padding:0">
+<div class="tablewrap">
+<table>
+<thead><tr>
+<th>#</th>
+<th>Zeit</th>
+<th>Dir</th>
+<th>ID</th>
+<th>DLC</th>
+<th>Daten (hex)</th>
+<th>Decodiert</th>
+</tr></thead>
+<tbody id="tbody">
+<tr><td colspan="7" style="padding:12px;color:#90a4ae;text-align:center">Warte auf CAN-Nachrichten&hellip;</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+
+<script>
+var since = 0;
+var total = 0;
+var paused = false;
+var entries = [];            /* buffered entries for CSV export       */
+var MAX_ROWS = 3000;         /* DOM/memory cap                        */
+var CHUNK = 256;             /* entries per fetch                     */
+var emptyShown = true;
+
+function fmtTime(ms){
+  var s = ms/1000, m = Math.floor(s/60), sec = s - m*60;
+  return m + ':' + (sec<10?'0':'') + sec.toFixed(3);
+}
+function parseHex(str){
+  var out = [];
+  if(!str) return out;
+  str.split(/\s+/).forEach(function(x){ out.push(parseInt(x,16)); });
+  return out;
+}
+/* Decode known CAN IDs to human readable text. */
+function decode(idNum, dlc, bytes){
+  if(idNum === 0 && dlc >= 6 && bytes.length >= 6){
+    var w = bytes[0] | (bytes[1]<<8);
+    var v = bytes[2] | (bytes[3]<<8);
+    var s = bytes[4] | (bytes[5]<<8);
+    return 'Vwake=' + (w/1000).toFixed(2) + '\u202fV  Vbat=' + (v/1000).toFixed(2) +
+           '\u202fV  Vcan=' + (s/1000).toFixed(2) + '\u202fV';
+  }
+  if(idNum === 0x404 && dlc >= 5 && bytes.length >= 5){
+    var cur = bytes[0] | (bytes[1]<<8);
+    if(cur >= 0x8000) cur -= 0x10000;          /* int16 little-endian */
+    var volt = (bytes[2] | (bytes[3]<<8)) / 1000.0;
+    return 'I=' + cur + '  V=' + volt.toFixed(2) + '\u202fV  SOC=' + bytes[4] + '%';
+  }
+  if(idNum === 0x201) return 'Keepalive';
+  if(idNum === 0x055) return 'Test 0x55';
+  return '';
+}
+function idMatches(idNum){
+  var f = document.getElementById('fId').value.trim().toLowerCase();
+  if(!f) return true;
+  f = f.replace(/^0x/,'');
+  var padded = ('000' + idNum.toString(16)).slice(-3);
+  return padded.indexOf(f) !== -1;
+}
+function rowVisible(idNum, tx){
+  if(idNum === 0) return document.getElementById('fAn').checked;
+  if(tx && !document.getElementById('fTx').checked) return false;
+  if(!tx && !document.getElementById('fRx').checked) return false;
+  return idMatches(idNum);
+}
+function makeRow(e){
+  var bytes = parseHex(e.data);
+  var idNum = parseInt(e.id, 16);
+  var isAn = (idNum === 0);
+  var tr = document.createElement('tr');
+  tr.className = isAn ? 'an' : (e.tx ? 'tx' : 'rx');
+  tr.dataset.idnum = idNum;
+  tr.dataset.tx = e.tx ? '1' : '0';
+  var dec = decode(idNum, e.dlc, bytes);
+  var dirHtml = isAn ? '<span class="pill s">SIG</span>'
+                     : '<span class="pill' + (e.tx?' t':'') + '">' + (e.tx?'TX':'RX') + '</span>';
+  tr.innerHTML =
+      '<td class="mono">' + e.seq + '</td>'
+    + '<td class="mono">' + fmtTime(e.t) + '</td>'
+    + '<td>' + dirHtml + '</td>'
+    + '<td class="mono">' + e.id + '</td>'
+    + '<td class="mono">' + e.dlc + '</td>'
+    + '<td class="mono">' + (e.data || '') + '</td>'
+    + '<td>' + dec + '</td>';
+  if(!rowVisible(idNum, e.tx)) tr.style.display = 'none';
+  return tr;
+}
+function appendEntries(list){
+  var body = document.getElementById('tbody');
+  if(emptyShown){ body.innerHTML = ''; emptyShown = false; }
+  var frag = document.createDocumentFragment();
+  list.forEach(function(e){ entries.push(e); frag.appendChild(makeRow(e)); });
+  body.appendChild(frag);
+  /* trim oldest rows to bound memory / DOM size */
+  while(body.childElementCount > MAX_ROWS){
+    body.removeChild(body.firstChild);
+    entries.shift();
+  }
+  if(document.getElementById('fScroll').checked){
+    var wrap = body.closest('.tablewrap');
+    wrap.scrollTop = wrap.scrollHeight;
+  }
+  /* drop non-matching rows from the buffer/table view is handled by CSS */
+}
+function applyFilter(){
+  var body = document.getElementById('tbody');
+  for(var i=0;i<body.rows.length;i++){
+    var r = body.rows[i];
+    if(r.dataset.idnum === undefined) continue;
+    r.style.display = rowVisible(parseInt(r.dataset.idnum),
+                                 r.dataset.tx === '1') ? '' : 'none';
+  }
+}
+function updateStatus(){
+  document.getElementById('status').textContent =
+    'Gesamt: ' + total + ' Nachrichten' +
+    '  \u2022  im Speicher: ' + entries.length +
+    (paused ? '  \u2022  PAUSIERT' : '');
+}
+async function fetchChunk(){
+  var r = await fetch('/api/can/log?since=' + since + '&max=' + CHUNK);
+  var j = await r.json();
+  if(j.entries && j.entries.length){
+    appendEntries(j.entries);
+    since = j.next;
+  } else if(j.next !== undefined){
+    since = j.next;
+  }
+  total = j.total;
+  return (j.entries ? j.entries.length : 0);
+}
+async function catchUp(){
+  for(var i=0;i<64;i++){
+    var n = await fetchChunk();
+    if(n < CHUNK) break;
+  }
+}
+async function poll(){
+  if(paused) return;
+  try{ await fetchChunk(); updateStatus(); applyFilter(); }catch(e){}
+}
+function togglePause(){
+  paused = !paused;
+  var b = document.getElementById('bPause');
+  b.classList.toggle('on', paused);
+  b.innerHTML = paused ? '&#x25B6; Fortsetzen' : '&#x23F8; Pause';
+  updateStatus();
+  if(!paused){ catchUp().then(function(){ updateStatus(); applyFilter(); }); }
+}
+async function clearLog(){
+  if(!confirm('Alle protokollierten CAN-Nachrichten l\u00f6schen?')) return;
+  await fetch('/api/can/log/clear', {method:'POST'});
+  entries = [];
+  since = 0;
+  total = 0;
+  var body = document.getElementById('tbody');
+  body.innerHTML = '';
+  emptyShown = true;
+  body.innerHTML = '<tr><td colspan="7" style="padding:12px;color:#90a4ae;text-align:center">Log geleert</td></tr>';
+  updateStatus();
+}
+function downloadCsv(){
+  if(!entries.length) return;
+  var lines = ['seq;t_ms;time;dir;id;dlc;data;decoded'];
+  entries.forEach(function(e){
+    var bytes = parseHex(e.data);
+    var idNum = parseInt(e.id, 16);
+    lines.push([e.seq, e.t, fmtTime(e.t), e.tx?'TX':'RX', e.id, e.dlc,
+                e.data, '"' + decode(idNum, e.dlc, bytes) + '"'].join(';'));
+  });
+  var blob = new Blob([lines.join('\n')], {type:'text/csv'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'can_log.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+async function pollStatus(){
+  try{
+    var r = await fetch('/api/status');
+    var st = await r.json();
+    document.getElementById('bKeepalive').classList.toggle('on', st.can_periodic);
+    document.getElementById('b55').classList.toggle('on', st.test55_periodic);
+  }catch(e){}
+}
+async function tog(url){
+  await fetch(url, {method:'POST'});
+  pollStatus();
+}
+/* initial load: start from oldest entry still in the buffer */
+catchUp().then(function(){ updateStatus(); applyFilter(); });
+setInterval(poll, 500);
+setInterval(pollStatus, 1000);
+pollStatus();
+</script>
+</body></html>

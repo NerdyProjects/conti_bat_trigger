@@ -57,8 +57,14 @@ h2{margin:0 0 10px;color:#455a64;font-size:.9em;text-transform:uppercase;letter-
 </div></div>
 
 <div class="card">
-<h2>CAN Keepalive (ID 0x201, alle 100&thinsp;ms)</h2>
-<button class="btn" id="bcan" onclick="tog('/api/can/periodic')">Senden</button>
+<h2>CAN Sender (alle 70&thinsp;ms)</h2>
+<button class="btn" id="bcan" onclick="tog('/api/can/periodic')">Keepalive 0x201</button>
+<button class="btn" id="b55" onclick="tog('/api/can/test55')">Test 0x55</button>
+</div>
+
+<div class="card">
+<h2>CAN Log</h2>
+<a class="btn" href="/canlog" style="display:inline-block;text-decoration:none;color:inherit">&#x1F4DC; Nachrichtenprotokoll &ouml;ffnen</a>
 </div>
 
 <div class="card">
@@ -120,6 +126,7 @@ async function poll(){
     upd('bpub',st.pu_bat);
     upd('bpd12',st.pd12v);
     upd('bcan',st.can_periodic);
+    upd('b55',st.test55_periodic);
   }catch(e){}
 }
 async function tog(url){
