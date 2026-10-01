@@ -43,7 +43,7 @@ void app_main(void)
     webserver_init();     /* HTTP server with status page and API      */
     wake_trigger_init();  /* Battery wake trigger state machine        */
     oled_display_init();  /* OLED display (OLED variant only; no-op otherwise) */
-    xTaskCreate(telemetry_task, "can_telemetry", 2560, NULL, 2, NULL);
+    xTaskCreate(telemetry_task, "can_telemetry", 3072, NULL, 2, NULL);
 
     gpio_set_led(true); /* LED on: system running */
 

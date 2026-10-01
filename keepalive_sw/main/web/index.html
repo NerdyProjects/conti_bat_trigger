@@ -59,7 +59,7 @@ h2{margin:0 0 10px;color:#455a64;font-size:.9em;text-transform:uppercase;letter-
 <div class="card">
 <h2>CAN Sender (alle 70&thinsp;ms)</h2>
 <button class="btn" id="bcan" onclick="tog('/api/can/periodic')">Keepalive 0x201</button>
-<button class="btn" id="b55" onclick="tog('/api/can/test55')">Test 0x55</button>
+<button class="btn" id="b55" onclick="tog('/api/can/test55')" title="Achtung: STM sendet selbst 0x555 &#x2014; Kollision verursacht Bus-Off!">Test 0x555 &#x26A0;</button>
 </div>
 
 <div class="card">

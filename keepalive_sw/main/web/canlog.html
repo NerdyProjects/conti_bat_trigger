@@ -29,7 +29,9 @@ tr:hover td{background:#f5f5f5}
 .pill{display:inline-block;padding:1px 6px;border-radius:9px;background:#e3f2fd;color:#0d47a1;font-size:.85em}
 .pill.t{background:#e0f2f1;color:#00695c}
 .pill.s{background:#fff3e0;color:#e65100}
+.pill.bo{background:#ffebee;color:#b71c1c}
 tr.an td{color:#8d6e63;background:#fffdf7}
+tr.busoff td{background:#ffebee;color:#b71c1c;font-weight:600}
 </style>
 </head>
 <body>
@@ -104,6 +106,11 @@ function decode(idNum, dlc, bytes){
     return 'Vwake=' + (w/1000).toFixed(2) + '\u202fV  Vbat=' + (v/1000).toFixed(2) +
            '\u202fV  Vcan=' + (s/1000).toFixed(2) + '\u202fV';
   }
+  if(idNum === 1 && dlc >= 3 && bytes.length >= 3){
+    var states=['aktiv','passiv','bus-off'];
+    return '\u26a0 BUS-OFF! Vorher: '+(states[bytes[0]]||'?')+
+           '  TEC='+bytes[1]+'  REC='+bytes[2]+'  \u2192 Auto-Recovery';
+  }
   if(idNum === 0x404 && dlc >= 5 && bytes.length >= 5){
     var cur = bytes[0] | (bytes[1]<<8);
     if(cur >= 0x8000) cur -= 0x10000;          /* int16 little-endian */
@@ -123,6 +130,7 @@ function idMatches(idNum){
 }
 function rowVisible(idNum, tx){
   if(idNum === 0) return document.getElementById('fAn').checked;
+  if(idNum === 1) return true; /* bus-off events always visible */
   if(tx && !document.getElementById('fTx').checked) return false;
   if(!tx && !document.getElementById('fRx').checked) return false;
   return idMatches(idNum);
@@ -131,13 +139,15 @@ function makeRow(e){
   var bytes = parseHex(e.data);
   var idNum = parseInt(e.id, 16);
   var isAn = (idNum === 0);
+  var isBusOff = (idNum === 1);
   var tr = document.createElement('tr');
-  tr.className = isAn ? 'an' : (e.tx ? 'tx' : 'rx');
+  tr.className = isBusOff ? 'busoff' : (isAn ? 'an' : (e.tx ? 'tx' : 'rx'));
   tr.dataset.idnum = idNum;
   tr.dataset.tx = e.tx ? '1' : '0';
   var dec = decode(idNum, e.dlc, bytes);
-  var dirHtml = isAn ? '<span class="pill s">SIG</span>'
-                     : '<span class="pill' + (e.tx?' t':'') + '">' + (e.tx?'TX':'RX') + '</span>';
+  var dirHtml = isBusOff ? '<span class="pill bo">ERR</span>'
+                : (isAn ? '<span class="pill s">SIG</span>'
+                        : '<span class="pill' + (e.tx?' t':'') + '">' + (e.tx?'TX':'RX') + '</span>');
   tr.innerHTML =
       '<td class="mono">' + e.seq + '</td>'
     + '<td class="mono">' + fmtTime(e.t) + '</td>'

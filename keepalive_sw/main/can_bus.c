@@ -8,7 +8,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
-#include "freertos/semphr.h"
 
 #define TAG "CAN"
 
@@ -63,32 +62,27 @@ static esp_timer_handle_t  s_timer55    = NULL;
 /* ---------- Chronological message log ---------- */
 
 static can_log_entry_t     s_log[CAN_LOG_SIZE];
-static uint32_t            s_log_head  = 0;   /* next write index           */
-static uint32_t            s_log_total = 0;   /* entries ever written       */
-static SemaphoreHandle_t   s_log_mux   = NULL;
+static uint32_t            s_log_head    = 0;
+static uint32_t            s_log_total   = 0;
+/* Spinlock: safe from both ISR and task context, unlike a mutex. */
+static portMUX_TYPE        s_log_spinlock = portMUX_INITIALIZER_UNLOCKED;
+static volatile bool       s_bus_off      = false;
 
-/* Append one frame to the log (safe to call from task/timer context). */
+/* Spinlock-protected write; safe from ISR, timer callback, and task. */
 static void log_add(uint32_t id, uint8_t dlc, const uint8_t *data, bool tx,
                     int64_t now_us)
 {
-    if (s_log_mux == NULL) {
-        return;
-    }
     uint8_t len = dlc > 8 ? 8 : dlc;
-    if (xSemaphoreTake(s_log_mux, portMAX_DELAY) != pdTRUE) {
-        return;
-    }
+    portENTER_CRITICAL_ISR(&s_log_spinlock);
     can_log_entry_t *e = &s_log[s_log_head];
     e->ts_ms = (uint32_t)(now_us / 1000);
     e->id    = id;
     e->dlc   = len;
     e->tx    = tx;
-    for (int i = 0; i < len; i++) {
-        e->data[i] = data[i];
-    }
+    for (int i = 0; i < len; i++) e->data[i] = data[i];
     s_log_head = (s_log_head + 1) % CAN_LOG_SIZE;
     s_log_total++;
-    xSemaphoreGive(s_log_mux);
+    portEXIT_CRITICAL_ISR(&s_log_spinlock);
 }
 
 /* ---------- Generic frame table update ---------- */
@@ -126,6 +120,20 @@ static void frame_table_update(uint32_t id, uint8_t dlc,
     portEXIT_CRITICAL(&s_mux);
 }
 
+/* Called from ISR context — only spinlock/flag operations allowed here.
+ * twai_node_recover() must happen from task context (done in can_rx_task). */
+static bool on_state_change_cb(twai_node_handle_t node,
+                                const twai_state_change_event_data_t *edata,
+                                void *user_ctx)
+{
+    if (edata->new_sta == TWAI_ERROR_BUS_OFF) {
+        uint8_t d[1] = {(uint8_t)edata->old_sta};
+        log_add(CAN_LOG_ID_BUS_OFF, sizeof(d), d, false, esp_timer_get_time());
+        s_bus_off = true;  /* rx task will call twai_node_recover() */
+    }
+    return false;
+}
+
 /* ---------- RX done ISR callback ---------- */
 
 static bool on_rx_done_cb(twai_node_handle_t node,
@@ -153,7 +161,12 @@ static void can_rx_task(void *arg)
 {
     rx_msg_t msg;
     while (1) {
-        if (xQueueReceive(s_rx_queue, &msg, portMAX_DELAY) != pdTRUE) {
+        if (s_bus_off) {
+            s_bus_off = false;
+            twai_node_recover(s_node);
+            ESP_LOGW(TAG, "Bus-off: recovery requested");
+        }
+        if (xQueueReceive(s_rx_queue, &msg, pdMS_TO_TICKS(50)) != pdTRUE) {
             continue;
         }
         int64_t now = esp_timer_get_time();
@@ -243,12 +256,13 @@ void can_bus_init(void)
     ESP_ERROR_CHECK(twai_new_node_onchip(&node_cfg, &s_node));
 
     twai_event_callbacks_t cbs = {
-        .on_rx_done = on_rx_done_cb,
+        .on_rx_done     = on_rx_done_cb,
+        .on_state_change = on_state_change_cb,
     };
     ESP_ERROR_CHECK(twai_node_register_event_callbacks(s_node, &cbs, NULL));
     ESP_ERROR_CHECK(twai_node_enable(s_node));
 
-    xTaskCreate(can_rx_task, "can_rx", 2048, NULL, 5, NULL);
+    xTaskCreate(can_rx_task, "can_rx", 3072, NULL, 5, NULL);
 
     esp_timer_create_args_t timer_args = {
         .callback = keepalive_timer_cb,
@@ -261,8 +275,6 @@ void can_bus_init(void)
         .name     = "can_test55",
     };
     ESP_ERROR_CHECK(esp_timer_create(&timer55_args, &s_timer55));
-
-    s_log_mux = xSemaphoreCreateMutex();
 
     ESP_LOGI(TAG, "TWAI initialized at 250 kbit/s, TX=%d RX=%d",
              PIN_CAN_TX, PIN_CAN_RX);
@@ -396,52 +408,43 @@ bool can_id_seen_recently(uint32_t id, uint32_t within_ms)
 int can_log_get(uint32_t since_seq, can_log_entry_t *buf,
                 int max_entries, uint32_t *out_next_seq)
 {
-    if (buf == NULL || max_entries <= 0 || s_log_mux == NULL) {
+    if (buf == NULL || max_entries <= 0) {
         if (out_next_seq) *out_next_seq = since_seq;
         return 0;
     }
-    int n = 0;
-    xSemaphoreTake(s_log_mux, portMAX_DELAY);
+    /* Snapshot total under spinlock (brief), then copy without lock.
+     * Worst case: a concurrent log_add() partially overwrites an entry
+     * being copied — acceptable for a diagnostic log. */
+    portENTER_CRITICAL(&s_log_spinlock);
     uint32_t total = s_log_total;
+    portEXIT_CRITICAL(&s_log_spinlock);
+
     uint32_t oldest = (total > CAN_LOG_SIZE) ? (total - CAN_LOG_SIZE) : 0u;
-    if (since_seq < oldest) {
-        since_seq = oldest;   /* requested range already overwritten */
-    }
-    if (since_seq > total) {
-        since_seq = total;    /* caller is ahead (e.g. log was cleared) */
-    }
+    if (since_seq < oldest) since_seq = oldest;
+    if (since_seq > total)  since_seq = total;
     uint32_t avail = total - since_seq;
-    if ((uint32_t)max_entries < avail) {
-        avail = (uint32_t)max_entries;
-    }
+    if ((uint32_t)max_entries < avail) avail = (uint32_t)max_entries;
     for (uint32_t i = 0; i < avail; i++) {
-        buf[n++] = s_log[(since_seq + i) % CAN_LOG_SIZE];
+        buf[i] = s_log[(since_seq + i) % CAN_LOG_SIZE];
     }
-    if (out_next_seq) *out_next_seq = since_seq + (uint32_t)n;
-    xSemaphoreGive(s_log_mux);
-    return n;
+    if (out_next_seq) *out_next_seq = since_seq + avail;
+    return (int)avail;
 }
 
 uint32_t can_log_total(void)
 {
-    if (s_log_mux == NULL) {
-        return 0;
-    }
-    xSemaphoreTake(s_log_mux, portMAX_DELAY);
+    portENTER_CRITICAL(&s_log_spinlock);
     uint32_t total = s_log_total;
-    xSemaphoreGive(s_log_mux);
+    portEXIT_CRITICAL(&s_log_spinlock);
     return total;
 }
 
 void can_log_clear(void)
 {
-    if (s_log_mux == NULL) {
-        return;
-    }
-    xSemaphoreTake(s_log_mux, portMAX_DELAY);
+    portENTER_CRITICAL(&s_log_spinlock);
     s_log_head  = 0;
     s_log_total = 0;
-    xSemaphoreGive(s_log_mux);
+    portEXIT_CRITICAL(&s_log_spinlock);
 }
 
 void can_log_append(uint32_t id, uint8_t dlc, const uint8_t *data)

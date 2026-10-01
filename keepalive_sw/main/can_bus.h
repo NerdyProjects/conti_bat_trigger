@@ -183,6 +183,15 @@ void can_log_clear(void);
 #define CAN_LOG_ID_ANALOG  0x000U
 
 /**
+ * Pseudo-ID logged when the TWAI peripheral goes bus-off and auto-recovers.
+ * Payload byte 0: previous state (0=active, 1=passive, 2=bus-off for reference).
+ * Payload byte 1: TX error count at the moment of bus-off.
+ * Payload byte 2: RX error count.
+ * This is never a real CAN frame (ID 0x001 is not in the STM filter list).
+ */
+#define CAN_LOG_ID_BUS_OFF  0x001U
+
+/**
  * @brief Append a synthetic (non-CAN) entry to the chronological log.
  *
  * Used for periodic telemetry samples so analog vehicle states (12 V half-on
