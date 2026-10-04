@@ -46,20 +46,20 @@ P4 0x080168A8  Zustand 2 kann nicht mehr in den Endzustand 3 (Dauer-Aus)
                laufen. Nur der Display-Aus-Modus (Modus 4) verlaesst
                Zustand 2 noch -- Richtung Zustand 1, aus dem es zurueckgeht.
 
-P5 0x08009492  Abschalt-Timer ausgebaut. Der zyklische Task 0x080093D2 laedt
-               den Countdown [0x20000100] auf 3000, solange Aktivitaet
-               erkannt wird; sonst zaehlt er herunter und setzt bei 0 das
-               Abschaltflag [0x200008FF] = 1 (-> Zustand 3, Dauer-Aus).
+P5 0x08009492  Abschalt-Timer ausgebaut.
                Die Verzweigung wird auf "immer nachladen" umgebogen, der
-               Zaehler erreicht die 0 also nie mehr.
+               Zaehler erreicht die 0 also nie mehr. (Wird von P7 abgeloest.)
 
-P6 0x0801B944  CAN: ABOM = automatische Bus-Off-Erholung. Die Firmware liest
-               zwar CAN_ESR und erkennt Bus-Off/Error-Passive/Error-Warning,
-               setzt aber nie MCR.ABOM. Ohne ABOM bleibt der bxCAN nach einem
-               Bus-Off stehen, bis Software MCR.INRQ toggelt -- das passiert
-               nur in einem schmalen Init-Pfad. Folge: der STM sendet nichts
-               mehr, arbeitet aber weiter (LEDs, Display). Mit ABOM holt sich
-               der Controller nach 128x11 rezessiven Bits selbst zurueck.
+P6 0x0801B944  CAN: ABOM = automatische Bus-Off-Erholung.
+
+P7 0x080093D8  O2 "Selbstversorgung": Trampolin in den freien Block
+               0x08038184..0x0803FFF3 (31,6 KiB, geloescht). Der Block setzt
+               Latch [0x2000087E] = 1 und die 0x201-Nutzlast [0x20000A0C] =
+               0x0100 ("0x201 mit Fahrt-Byte", wie das Motor-Keepalive) und
+               holt den ersetzten Zustandsmaschinen-Aufruf nach. Damit sieht
+               die Firmware dauerhaft Aktivitaet (f_0F390() = 256/10 = 25 >
+               10) -> der Original-Code laedt den 5-Minuten-Timer nach und
+               setzt 0x555 = 1. Ersetzt P5 (und macht P1 redundant).
 
 Alle Patches sind reine Codepfad-Aenderungen:
   * keine Stack-Aenderung (push/pop-Balance bleibt),
@@ -79,9 +79,14 @@ Aufruf
 from __future__ import annotations
 
 import argparse
+import re
+import shutil
 import struct
+import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
@@ -106,6 +111,14 @@ DEFAULT_OUT = Path("data/stm32f105_bms_control")
 # Patch-Definitionen
 # --------------------------------------------------------------------------
 @dataclass(frozen=True)
+class Segment:
+    """Ein zusammenhaengender Patch-Bereich."""
+    addr: int
+    accept: Tuple[bytes, ...]   # zulaessige Ist-Zustaende (Original zuerst)
+    new: bytes                  # Zielzustand
+
+
+@dataclass(frozen=True)
 class Patch:
     pid: str
     addr: int
@@ -113,6 +126,8 @@ class Patch:
     new: bytes                  # Zielzustand
     title: str
     detail: str
+    extra: Tuple[Segment, ...] = ()      # weitere Bereiche (z. B. Code-Cave)
+    superseded_by: Optional[str] = None  # wird uebersprungen, wenn X aktiv ist
 
     @property
     def size(self) -> int:
@@ -122,6 +137,145 @@ class Patch:
     def old(self) -> bytes:
         """Der kanonische Ausgangszustand (fuer die Anzeige)."""
         return self.accept[0]
+
+    @property
+    def segments(self) -> Tuple[Segment, ...]:
+        return (Segment(self.addr, self.accept, self.new),) + self.extra
+
+
+# --------------------------------------------------------------------------
+# O2: Code-Cave -- "0x201 mit Fahrt" dauerhaft vorbelegen
+# --------------------------------------------------------------------------
+O2_TRAMPOLINE = 0x080093D8      # `bl 0x8016822` im 100-ms-Task 0x080093D2
+O2_CAVE = 0x0803FF00            # freie Flaeche -- siehe Pruefung unten!
+O2_STATE = 0x08016822           # ersetzter Aufruf: Zustandsmaschine
+O2_LATCH_SET = 0x080167E4       # f_167E4: setzt [0x2000087E] = 1 (0x201-Post-Call)
+O2_X201_SLOT = 0x20000A0C       # 0x201-Nutzlast (Signal 14, DLC 4)
+
+
+def _thumb_bl(addr: int, target: int) -> bytes:
+    """Thumb-2-BL (T1) kodieren -- gegen acht Spruenge im Original verifiziert.
+
+    Wird nur fuer den **Vergleichswert** des Trampolins gebraucht (die
+    Originalbytes `bl 0x08016822`); erzeugt wird der neue Code vom Assembler.
+    Beispiel: `bl 0x08016822` bei 0x080093D8 ergibt `0d f0 23 fa`.
+    """
+    imm = (target - (addr + 4)) & 0x1FFFFFF
+    s = (imm >> 24) & 1
+    i1, i2 = (imm >> 23) & 1, (imm >> 22) & 1
+    imm10, imm11 = (imm >> 12) & 0x3FF, (imm >> 1) & 0x7FF
+    j1, j2 = (i1 ^ s) ^ 1, (i2 ^ s) ^ 1
+    return ((0xF000 | (s << 10) | imm10).to_bytes(2, "little")
+            + (0xD000 | (j1 << 13) | (j2 << 11) | imm11).to_bytes(2, "little"))
+
+
+O2_ASM = Path(__file__).resolve().parent / "o2_cave.s"
+O2_LD = Path(__file__).resolve().parent / "o2_cave.ld"
+AS = "arm-none-eabi-as"
+LD = "arm-none-eabi-ld"
+OBJCOPY = "arm-none-eabi-objcopy"
+
+
+@lru_cache(maxsize=1)
+def assemble_o2() -> Tuple[bytes, bytes]:
+    """Assembliert tools/o2_cave.s und liefert (Cave, Trampolin).
+
+    Quellcode steht in `tools/o2_cave.s`, die Platzierung in `tools/o2_cave.ld`
+    (0x08038184 = Cave, 0x080093D8 = Trampolin). Die Adressen der Aufrufziele
+    kommen als ``--defsym`` von hier -- eine Quelle der Wahrheit fuer Adressen.
+
+    Ergebnis wird geprueft: Laengen 28/4 Byte, Literal == O2_X201_SLOT und der
+    Trampolin-BL gegen den verifizierten Python-Encoder.
+    """
+    for tool in (AS, LD, OBJCOPY):
+        if shutil.which(tool) is None:
+            raise SystemExit(
+                f"{tool} nicht gefunden. O2/P7 braucht die ARM-Toolchain:\n"
+                f"     sudo apt install gcc-arm-none-eabi binutils-arm-none-eabi"
+            )
+    with tempfile.TemporaryDirectory() as td:
+        td = Path(td)
+        obj, elf = td / "o2_cave.o", td / "o2_cave.elf"
+        cave_bin, tramp_bin = td / "cave.bin", td / "tramp.bin"
+        subprocess.run(
+            [AS, "-mthumb", "-o", str(obj), str(O2_ASM),
+             f"--defsym=F_167E4={O2_LATCH_SET:#x}",
+             f"--defsym=F_16822={O2_STATE:#x}",
+             f"--defsym=O2_X201_SLOT={O2_X201_SLOT:#x}"],
+            check=True, capture_output=True, text=True)
+        subprocess.run([LD, "-T", str(O2_LD), "-o", str(elf), str(obj)],
+                       check=True, capture_output=True, text=True)
+        for sec, out in ((".cave", cave_bin), (".tramp", tramp_bin)):
+            subprocess.run([OBJCOPY, "-O", "binary", "-j", sec, str(elf),
+                            str(out)], check=True, capture_output=True,
+                           text=True)
+        cave, tramp = cave_bin.read_bytes(), tramp_bin.read_bytes()
+
+    # Platzierung aus tools/o2_cave.ld gegen die Konstanten hier abgleichen --
+    # so gibt es genau eine Adresse je Abschnitt, und ein Vergessen faellt auf.
+    text = O2_LD.read_text(encoding="utf-8")
+    for name, want in ((".tramp", O2_TRAMPOLINE), (".cave", O2_CAVE)):
+        m = re.search(rf"\{name}\s+(0x[0-9A-Fa-f]+)", text)
+        if not m:
+            raise SystemExit(f"{O2_LD}: Abschnitt {name} nicht gefunden")
+        if int(m.group(1), 16) != want:
+            raise SystemExit(
+                f"{O2_LD}: {name} = {m.group(1)} passt nicht zu "
+                f"{want:#010x} in patch_bms.py")
+
+    want_tramp = _thumb_bl(O2_TRAMPOLINE, O2_CAVE)
+    if not cave or not tramp:
+        raise SystemExit("O2: Assembler lieferte leere Abschnitte")
+    if tramp != want_tramp:
+        raise SystemExit(f"O2-Trampolin: Assembler {tramp.hex(' ')} != erwartet "
+                         f"{want_tramp.hex(' ')}")
+    lit_at = cave.rfind(O2_X201_SLOT.to_bytes(4, "little"))
+    if lit_at < 0:
+        raise SystemExit("O2-Cave: Literal 0x20000A0C fehlt")
+    if len(cave) % 4 or len(tramp) != 4:
+        raise SystemExit(f"O2: unerwartete Laengen {len(cave)}/{len(tramp)}")
+    return cave, tramp
+
+
+O2_CAVE_BYTES, O2_TRAMP_BYTES = assemble_o2()
+
+
+def check_cave_free(img: Image) -> None:
+    """Prueft, dass die Cave in wirklich freiem Flash liegt.
+
+    Lehre aus dem ersten Versuch: 0xFF heisst **nicht** automatisch "unbenutzt".
+    Der Block ab 0x08038184 ist zwar geloescht, wird aber von einem Deskriptor
+    im Datenbereich referenziert (0x08037F54 -> 0x08038184) -- die Stelle wird
+    also moeglicherweise als Wert gelesen. Deshalb:
+
+      1. der Cave-Bereich selbst muss im Eingangsimage 0xFF sein,
+      2. **kein** 4-Byte-Wort im Image darf in die 2-KiB-Seite der Cave zeigen
+         (Pointer, Deskriptoren, Literal-Pools -- alles 4-Byte-aligned).
+    """
+    off = O2_CAVE - img.base
+    n = len(O2_CAVE_BYTES)
+    if off < 0 or off + n > len(img.data):
+        raise SystemExit(f"O2: Cave 0x{O2_CAVE:08X} liegt ausserhalb des Images")
+    have = bytes(img.data[off:off + n])
+    if have != b"\xff" * n:
+        raise SystemExit(f"O2: Cave-Bereich 0x{O2_CAVE:08X} ist nicht leer:\n"
+                         f"     {have.hex(' ')}")
+    page = O2_CAVE & ~0x7FF
+    hits = []
+    for i in range(0, len(img.data) - 4, 4):
+        w = int.from_bytes(img.data[i:i + 4], "little")
+        if not page <= w < page + 0x800:
+            continue
+        if APP_CRC_ADDR <= w < APP_CRC_ADDR + 4:
+            continue            # legitimer Zeiger auf das App-CRC-Wort
+        hits.append((img.base + i, w))
+    if hits:
+        raise SystemExit(
+            f"O2: {len(hits)} Zeiger zeigen in die Cave-Seite 0x{page:08X}:\n"
+            + "\n".join(f"     0x{a:08X} -> 0x{w:08X}" for a, w in hits[:8])
+            + "\n     Andere Adresse in tools/o2_cave.ld waehlen!")
+    print(f"[ccheck ok ] O2-Cave 0x{O2_CAVE:08X} frei (Seite 0x{page:08X} "
+          f"unreferenziert)")
 
 
 PATCHES: Tuple[Patch, ...] = (
@@ -174,7 +328,10 @@ PATCHES: Tuple[Patch, ...] = (
         "Abschalt-Timer (Countdown [0x20000100]) entfernt",
         "`bne.n 0x800949E` -> `b.n 0x8009494`: der Zaehler wird immer wieder\n"
         "     auf 3000 geladen und kann nie 0 werden. Damit entfaellt der\n"
-        "     Pfad `[0x200008FF] = 1` (0x080094B6) vollstaendig.",
+        "     Pfad `[0x200008FF] = 1` (0x080094B6) vollstaendig.\n"
+        "     P7 stellt stattdessen die Aktivitaet selbst her -- dann meldet die\n"
+        "     echte Formel f_0F390() = 25 und der Zaehler laedt von allein nach.",
+        superseded_by="P7",
     ),
     Patch(
         "P6",
@@ -187,6 +344,24 @@ PATCHES: Tuple[Patch, ...] = (
         "     einem Bus-Off dauerhaft stumm -- genau das Symptom\n"
         "     \"keine CAN-Nachrichten mehr, aber STM laeuft weiter\".",
     ),
+    Patch(
+        "P7",
+        O2_TRAMPOLINE,
+        (_thumb_bl(O2_TRAMPOLINE, O2_STATE),),      # Original: bl 0x8016822
+        O2_TRAMP_BYTES,                             # -> in den freien Block
+        "O2: Firmware glaubt dauerhaft an '0x201 mit Fahrt'",
+        "Ersetzt im 100-ms-Task den Aufruf `bl 0x8016822` (Zustandsmaschine)\n"
+        "     durch einen Sprung in den freien Block 0x08038184. Der Block setzt\n"
+        "     das Latch [0x2000087E] = 1, schreibt die 0x201-Nutzlast\n"
+        "     [0x20000A0C] = 0x0100 (= Wire {00 01}, wie das Motor-Keepalive) und\n"
+        "     holt den ersetzten Zustandsmaschinen-Aufruf nach.\n"
+        "     Wirkung: f_0F390() = 0x0100/10 = 25 > 10 -> Aktivitaet erkannt,\n"
+        "     der 5-Minuten-Timer laedt nach (P5 wird unnoetig und automatisch\n"
+        "     uebersprungen); der Original-Rampencode setzt 0x555 = 1, weil das\n"
+        "     Latch gesetzt ist (P1 damit redundant, bleibt aber als Absicherung).\n"
+        "     Quellcode: tools/o2_cave.s (Bauen: tools/patch_bms.py --print-o2).",
+        extra=(Segment(O2_CAVE, (b"\xff" * len(O2_CAVE_BYTES),), O2_CAVE_BYTES),),
+    ),
 )
 
 
@@ -197,22 +372,25 @@ def apply_patches(img: Image, patches: Sequence[Patch]) -> List[str]:
     Liefert je Patch 'changed' oder 'already'."""
     result: List[str] = []
     for p in patches:
-        off = p.addr - img.base
-        if off < 0 or off + len(p.new) > len(img.data):
-            raise SystemExit(f"[{p.pid}] ausserhalb des Images: 0x{p.addr:08X}")
-        have = bytes(img.data[off:off + len(p.new)])
-        if have == p.new:
-            result.append("already")        # schon gepatcht -- nichts zu tun
-            continue
-        if have not in p.accept:
-            raise SystemExit(
-                f"[{p.pid}] Bytes an 0x{p.addr:08X} unerwartet!\n"
-                f"     akzeptiert: {' | '.join(b.hex(' ') for b in p.accept)}\n"
-                f"     gefunden  : {have.hex(' ')}\n"
-                f"     Falsche Firmware oder fremder Patch."
-            )
-        img.data[off:off + len(p.new)] = p.new
-        result.append("changed")
+        status = "already"
+        for seg in p.segments:
+            off = seg.addr - img.base
+            if off < 0 or off + len(seg.new) > len(img.data):
+                raise SystemExit(f"[{p.pid}] ausserhalb des Images: "
+                                 f"0x{seg.addr:08X}")
+            have = bytes(img.data[off:off + len(seg.new)])
+            if have == seg.new:
+                continue                    # schon gepatcht -- nichts zu tun
+            if have not in seg.accept:
+                raise SystemExit(
+                    f"[{p.pid}] Bytes an 0x{seg.addr:08X} unerwartet!\n"
+                    f"     akzeptiert: {' | '.join(b.hex(' ') for b in seg.accept)}\n"
+                    f"     gefunden  : {have.hex(' ')}\n"
+                    f"     Falsche Firmware oder fremder Patch."
+                )
+            img.data[off:off + len(seg.new)] = seg.new
+            status = "changed"
+        result.append(status)
     return result
 
 
@@ -259,6 +437,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--without", action="append", default=[], metavar="PID",
                     help="Patch weglassen, z. B. --without P4 (mehrfach moeglich)")
     ap.add_argument("--list", action="store_true", help="nur Patchliste zeigen")
+    ap.add_argument("--print-o2", action="store_true",
+                    help="O2-Code (tools/o2_cave.s) assemblieren und anzeigen")
     ap.add_argument("--no-crc", action="store_true",
                     help="App-CRC nicht neu berechnen (nicht empfohlen)")
     args = ap.parse_args(argv)
@@ -267,6 +447,31 @@ def main(argv: Optional[List[str]] = None) -> int:
         for p in PATCHES:
             print(f"{p.pid}  0x{p.addr:08X}  "
                   f"{p.old.hex(' '):<24} -> {p.new.hex(' '):<24} {p.title}")
+            for seg in p.extra:
+                print(f"      + 0x{seg.addr:08X}  {len(seg.new)} Byte  {seg.new.hex(' ')}")
+        return 0
+
+    if args.print_o2:
+        cave, tramp = O2_CAVE_BYTES, O2_TRAMP_BYTES
+        print(f"Quelle   : {O2_ASM}")
+        print(f"Platzung : {O2_LD}")
+        print(f"Aufrufe  : f_167E4={O2_LATCH_SET:#010x} (Latch), "
+              f"f_16822={O2_STATE:#010x} (Zustandsmaschine), "
+              f"Slot={O2_X201_SLOT:#010x}")
+        print(f"\nTrampolin 0x{O2_TRAMPOLINE:08X} ({len(tramp)} Byte):\n"
+              f"   {tramp.hex(' ')}   (ersetzt {_thumb_bl(O2_TRAMPOLINE, O2_STATE).hex(' ')})")
+        print(f"\nCave      0x{O2_CAVE:08X} ({len(cave)} Byte):\n"
+              f"   {cave.hex(' ')}")
+        print("\nDisassembly:")
+        with tempfile.TemporaryDirectory() as td:
+            obj, elf = Path(td) / "o2.o", Path(td) / "o2.elf"
+            subprocess.run([AS, "-mthumb", "-o", str(obj), str(O2_ASM),
+                            f"--defsym=F_167E4={O2_LATCH_SET:#x}",
+                            f"--defsym=F_16822={O2_STATE:#x}",
+                            f"--defsym=O2_X201_SLOT={O2_X201_SLOT:#x}"], check=True)
+            subprocess.run([LD, "-T", str(O2_LD), "-o", str(elf), str(obj)],
+                           check=True)
+            subprocess.run(["arm-none-eabi-objdump", "-d", str(elf)], check=True)
         return 0
 
     skip = {s.upper() for s in args.without}
@@ -274,6 +479,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     if unknown:
         raise SystemExit(f"Unbekannte Patch-IDs: {', '.join(sorted(unknown))}")
     active = [p for p in PATCHES if p.pid not in skip]
+    # Abgeloeste Patches (z. B. P5 durch P7) automatisch auslassen.
+    active_ids = {p.pid for p in active}
+    dropped = [p for p in active
+               if p.superseded_by and p.superseded_by in active_ids]
+    active = [p for p in active if p not in dropped]
 
     if not args.src.exists():
         raise SystemExit(f"Quelle nicht gefunden: {args.src}")
@@ -287,17 +497,24 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(f"[in]  {args.src}  base=0x{img.base:08X} size={len(img.data)}")
     verify_app_crc(img)
 
+    if any(p.pid == "P7" for p in active):
+        check_cave_free(img)
+
     status = apply_patches(img, active)
     print()
     smap = dict(zip([p.pid for p in active], status))
     for p in PATCHES:
         if p.pid in skip:
             note = "uebersprungen"
+        elif p in dropped:
+            note = f"durch {p.superseded_by} abgeloest"
         elif smap.get(p.pid) == "already":
             note = "war schon gesetzt"
         else:
             note = "angewendet"
         print(f"[{p.pid}] 0x{p.addr:08X}  {p.new.hex(' '):<24} {p.title}  ({note})")
+        for seg in p.extra:
+            print(f"      + 0x{seg.addr:08X}  {len(seg.new)} Byte  (Code-Cave)")
         for line in p.detail.splitlines():
             print(f"    {line}")
 

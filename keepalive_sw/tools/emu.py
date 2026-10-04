@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import struct
 import sys
+import contextlib
+import io
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -82,7 +84,9 @@ class Emu:
         # Peripherie + System als normalen RAM abbilden (kein Fault)
         for base, size in [(0x40000000, 0x00080000), (0x50000000, 0x00040000),
                            (0xE0000000, 0x00100000),
-                           (0xE0040000, 0x00010000)]:
+                           (0xE0040000, 0x00010000),
+                           (RET_SENTINEL & ~0xFFF, 0x1000),   # Ruecksprungziel
+                           ]:
             try:
                 self.mu.mem_map(base, size)
             except UcError:
@@ -1119,46 +1123,92 @@ class _EmuBlTransport:
         return None
 
 
-def scenario_uploadtool(emu: "Emu") -> int:
-    """Fahrt den echten Upload-Pfad des Flash-Tools gegen den emulierten BL.
+@contextlib.contextmanager
+def _quiet_stdout():
+    """stdout waehrend des Aufrufs verwerfen (Tool-Ausgabe in Szenarien)."""
+    with contextlib.redirect_stdout(io.StringIO()):
+        yield
 
-    Verwendet stm_display_fw.Protocol.upload() (also genau den Code, der auf
-    der Hardware laeuft) mit einem Transport-Ersatz, der die Reports in
-    0x08000AAA einspeist. Geprueft wird, dass der gesamte App-Bereich
-    unveraendert geschrieben wird und der Schreibzeiger exakt auf
-    0x08040000 endet.
+
+def scenario_uploadtool(emu: "Emu") -> int:
+    """Protocol.upload() -- der echte Tool-Code -- gegen den emulierten BL.
+
+    Zwei Durchlaeufe:
+
+    A) **altes** blockweises Verfahren (``stream=False``): zeigt den
+       Geraetefehler im Emulator -- nach dem ersten 0x36-Rahmen schaltet der
+       Bootloader auf den Datenstrom um (``[0x2000001C] = 1``, weil der Block
+       nicht quittiert wird), die folgenden Kommandorahmen werden dadurch
+       *wortwoertlich* mit 58 Byte ab dem Zeiger programmiert, und das
+       Wiederaufsetzen mit ``0x37``/``0x34`` landet auf schon beschriebenem
+       Flash -> ``0x72``.
+
+    B) **Stromverfahren** (``stream=True``): ein Kommandorahmen, danach reine
+       Datenrahmen; der Bootloader quittiert am Ende mit ``0x76``, weil der
+       Zeiger exakt 0x08040000 erreicht. Der Flash muss Byte fuer Byte dem
+       Image entsprechen.
+
+    Geprueft wird jeweils Image-Gleichheit, Schreibzeiger, App-CRC und dass
+    das FLASH_SR-Modell kein Fehlerbit gesetzt hat.
     """
     sys.path.insert(0, str(ROOT / "tools"))
     import stm_display_fw as fw  # noqa: PLC0415
 
-    rec: Dict[str, object] = {}
-    emu.flash_log = []                              # type: ignore[attr-defined]
-    _bl_install(emu, rec)
-    tp = _EmuBlTransport(emu, rec)
-    proto = fw.Protocol(tp, verbose=False, wire="raw")
-
-    img = fw.load_image(ROOT / "data" / "stm32f105_conti.bin")
-    target = fw.APP_BASE
+    path = ROOT / "data" / "stm32f105_bms_control.bin"
+    data = path.read_bytes()
+    img = fw.load_image(path)
     total = fw.APP_CRC_ADDR + 4 - fw.APP_BASE
-    before = bytes(emu.mu.mem_read(target, total))
+    print(f"[uploadtool] Protocol.upload('app'): {total} Bytes = "
+          f"{total // 56} Bloecke, echter Bootloader-Code + FLASH-Modell")
 
-    print(f"[uploadtool] starte Protocol.upload('app'): {total} Bytes, "
-          f"chunk=56 -> {total // 56} Bloecke")
-    proto.upload(img, region="app")
+    ok = True
 
-    after = bytes(emu.mu.mem_read(target, total))
-    endptr = emu.rd(BL_FSTATE + 4)
-    nflash = len(getattr(emu, "flash_log", []))
-    errs = [hex(x) for x in rec.get("err", [])]     # type: ignore[union-attr]
+    def check(name: str, cond: bool, extra: str = "") -> None:
+        nonlocal ok
+        ok = ok and bool(cond)
+        print(f"[uploadtool] [{'ok  ' if cond else 'FEHL'}] {name}"
+              f"{'   ' + extra if extra else ''}")
 
-    print(f"[uploadtool] Reports gesendet   = {tp.sent}")
-    print(f"[uploadtool] Flash-Writes       = {nflash}")
-    print(f"[uploadtool] Endzeiger          = {endptr:#010x} "
-          f"(erwartet {fw.APP_CRC_ADDR + 4:#010x})")
-    print(f"[uploadtool] Bootloader-Fehler  = {errs if errs else '-'}")
-    same = after == before
-    print(f"[uploadtool] Inhalt identisch   = {same}")
-    ok = same and endptr == fw.APP_CRC_ADDR + 4 and not errs
+    # -- A) altes Verfahren: muss am Datenstrom-Umschalten scheitern --------
+    e1, fm1 = _blflash_emu(None, False, data)
+    tp1 = _ToolBlTransport(e1)
+    pr1 = fw.Protocol(tp1, verbose=False, wire="app")
+    legacy_msg = ""
+    try:
+        with _quiet_stdout():
+            pr1.upload(img, region="app", burst_blocks=8, pace_ms=0,
+                       settle_ms=0)
+        legacy_failed = False
+    except Exception as exc:                     # noqa: BLE001
+        legacy_failed = True
+        legacy_msg = str(exc).splitlines()[0][:60]
+    flag1 = e1.rd(BL_MODE, 1)
+    check("altes Verfahren scheitert reproduzierbar", legacy_failed,
+          legacy_msg or "kein Fehler -- Muster unerwartet")
+    check("Umschalten in den Datenstrom erklaert es",
+          flag1 == 0 or legacy_failed,
+          f"[0x2000001C]={flag1}")
+
+    # -- B) Stromverfahren: muss durchlaufen -------------------------------
+    e, fm = _blflash_emu(None, False, data)
+    tp = _ToolBlTransport(e)
+    pr = fw.Protocol(tp, verbose=False, wire="app")
+    with _quiet_stdout():
+        pr.upload(img, region="app", stream=True, chunk=56,
+                  stream_pace_ms=0.0)
+    got = bytes(e.mu.mem_read(fw.APP_BASE, total))
+    want = img.slice(fw.APP_BASE, total)
+    ptr = e.rd(BL_FSTATE + 4)
+    errs = list(e.rec.get("err", []))            # type: ignore[union-attr]
+    crc = pr.cmd_app_crc()
+    check("Flash == Image (Stromverfahren)", got == want,
+          f"{sum(1 for a, b in zip(got, want) if a != b)} abweichende Bytes")
+    check("Schreibzeiger", ptr == fw.APP_CRC_ADDR + 4, f"{ptr:#010x}")
+    check("App-CRC Status 0", crc == fw.CRC_OK, f"Status={crc}")
+    check("keine Bootloader-Fehler", not errs,
+          f"{[hex(x) for x in errs][:6] if errs else '-'}")
+    check("FLASH_SR sauber (kein PGERR/WRPRTERR)",
+          not (fm.sr & (SR_PGERR | SR_WRPRTERR)), f"SR=0x{fm.sr:02x}")
     print("[uploadtool] ->", "OK" if ok else "MISMATCH")
     return 0 if ok else 1
 
@@ -1244,6 +1294,8 @@ P_TIMER = 0x20000100       # 32-Bit-Countdown, Reload 3000
 P_TICK100 = 0x20000104     # Halfword-Teiler (100)
 F_TASK = 0x080093D2        # zyklischer Task, enthaelt den Countdown
 F_DELAY = 0x08009E1C       # Wartepunkt am Ende einer Task-Iteration
+P_X201 = 0x20000A0C        # 0x201-Nutzlast (Signal 14, Tabelle 0x08036C80[14])
+F_F390 = 0x0800F390        # "Aktivitaet" = 16-Bit-Wort bei P_X201 / 10
 
 
 def _ret0(e: Emu) -> None:
@@ -1252,6 +1304,11 @@ def _ret0(e: Emu) -> None:
 
 def _ret2(e: Emu) -> None:
     e.mu.reg_write(UC_ARM_REG_R0, 2)
+
+
+def _ret(n: int):
+    """Stub-Fabrik: liefert r0 = n."""
+    return lambda e: e.mu.reg_write(UC_ARM_REG_R0, n)
 
 
 def _adc_zero(e: Emu) -> None:
@@ -1284,6 +1341,34 @@ def _run_task(e: Emu) -> Tuple[int, int]:
     e.wr(P_SHDN, 0, 1)
     e.call(F_TASK)
     return e.rd(P_TIMER), e.rd(P_SHDN, 1)
+
+
+def _bms_task_emu_real_activity(img: bytes, state_mode: int = 0) -> Emu:
+    """Wie _bms_task_emu, aber f_0F390 laeuft ECHT.
+
+    Damit wird die Aktivitaetsformel der Firmware selbst ausgewertet: der Task
+    laedt genau dann nach, wenn 16-Bit-Wort(P_X201)/10 > 10 ist. P_X201 ist der
+    RAM-Slot von CAN 0x201 (Signal 14).
+
+    ``state_mode`` ist der Wert, den f_1FD8E() (Fahrzustand 0x20000C5C) liefert;
+    nur bei != 0 laeuft der vordere Task-Abschnitt -- und damit das O2-Trampolin.
+    """
+    e = Emu(img)
+    noop = lambda _e: None                                          # noqa: E731
+    for a in (0x08015EF8, 0x08015F6C, 0x08008A62, 0x0800ED76, 0x08012DC8,
+              0x0801D0CE, 0x0801D0EE, 0x080135DE,
+              # wird nur erreicht, wenn der Zustandsmaschinen-Teil laeuft:
+              0x08012E06, 0x080162B6, 0x0800E892, 0x08015ED8, 0x0800F6EC,
+              0x08016A9A, 0x0801C2CE):
+        e.add_stub(a, noop)
+    for a in (0x0800F1B2, 0x0801B8C8, 0x0801EE58, 0x0801EE48,
+              0x0800EACA, 0x08020144):      # f_0F390 bewusst NICHT gestubbt
+        e.add_stub(a, _ret0)
+    e.add_stub(0x0801FD8E, _ret(state_mode))
+    e.add_stub(0x0800B59C, _ret2)           # Display-Modus 2
+    e.add_stub(0x0800E4C2, _adc_zero)       # ADC -> 0
+    e.stop_pcs.add(F_DELAY)
+    return e
 
 
 # --- CAN (P6) -------------------------------------------------------------
@@ -1423,8 +1508,61 @@ def scenario_bmspatch(emu: Emu) -> int:
         print(f"    (Timer: Original={k_timer_o} Flag={k_flag_o} | "
               f"Patch={k_timer_p} Flag={k_flag_p})")
         check("K  Original: Timer laeuft ab -> [0x8FF] = 1", k_flag_o, 1)
-        check("K  Patch:    Flag bleibt 0", k_flag_p, 0)
-        check("K  Patch:    Zaehler neu auf 3000 geladen", k_timer_p, 3000)
+        check("K  Original: Zaehler auf 0", k_timer_o, 0)
+        # P5 ist durch P7 abgeloest; dieser Harness unterdrueckt die Cave
+        # (f_1FD8E() = 0 -> vorderer Task-Teil wird uebersprungen) und muss
+        # daher wie das Original abschalten -- Beleg, dass der Schutz aus der
+        # Cave kommt und nicht aus einem Nebeneffekt.
+        check("K  Patch ohne Cave-Lauf: wie Original -> Flag 1", k_flag_p, 1)
+
+        # N: P7 (O2) -- die assemblierte Code-Cave stellt "0x201 mit Fahrt"
+        #    her. Geprueft mit einem Image OHNE P1/P5, damit die Wirkung
+        #    eindeutig P7 zuzuordnen ist.
+        print("[bmspatch] --- P7: Code-Cave (tools/o2_cave.s) ---")
+        import patch_bms as pb  # noqa: PLC0415
+
+        img_p7 = fw.Image(bytearray(orig))
+        pb.apply_patches(img_p7, [p for p in pb.PATCHES
+                                  if p.pid in ("P2", "P3", "P4", "P6", "P7")])
+        e7 = _bms_task_emu_real_activity(bytes(img_p7.data))
+        e7.wr(P_ENABLE, 0, 1)          # Latch leer
+        e7.wr(P_X201, 0, 2)            # 0x201-Nutzlast leer
+        e7.wr(P_STATE, 0, 1)
+        e7.call(pb.O2_CAVE)            # genau das Ziel des Trampolins
+        check("N  P7: Latch [0x2000087E] = 1", e7.rd(P_ENABLE, 1), 1)
+        check("N  P7: 0x201-Nutzlast = 0x0100", e7.rd(P_X201, 2), 0x0100)
+        check("N  P7: Zustandsmaschine lief (Zustand 2)", e7.rd(P_STATE, 1), 2)
+        e7.call(F_F390)
+        f7 = e7.mu.reg_read(UC_ARM_REG_R0)
+        check("N  P7: f_0F390() = 25 (echte Formel)", f7, 25)
+        timer7, flag7 = _run_task(e7)
+        check("N  P7: 5-Minuten-Timer laedt nach (3000)", timer7, 3000)
+        check("N  P7: kein Abschaltflag", flag7, 0)
+        # Gegenprobe: dasselbe Image ohne P7-Cave -> keine Aktivitaet.
+        img_no7 = fw.Image(bytearray(orig))
+        pb.apply_patches(img_no7, [p for p in pb.PATCHES
+                                   if p.pid in ("P2", "P3", "P4", "P6")])
+        e0 = _bms_task_emu_real_activity(bytes(img_no7.data))
+        e0.wr(P_ENABLE, 0, 1)
+        e0.wr(P_X201, 0, 2)
+        timer0, flag0 = _run_task(e0)
+        check("N  ohne P7: keine Aktivitaet -> Flag 1", flag0, 1)
+        check("N  ohne P7: Zaehler laeuft ab", timer0, 0)
+
+        # M: Herkunft der "Aktivitaet" (echte Formel, kein Stub).
+        #    P_X201 ist der RAM-Slot von CAN 0x201 (Signal 14, DLC 4).
+        print("[bmspatch] --- Aktivitaet: 0x201-Nutzlast steuert den Timer ---")
+        for val, want_f, want_flag in ((0x0000, 0, 1), (0x0100, 25, 0)):
+            t = _bms_task_emu_real_activity(orig)
+            t.wr(P_X201, val, 2)
+            t.call(F_F390)
+            f = t.mu.reg_read(UC_ARM_REG_R0)
+            timer_t, flag_t = _run_task(t)
+            print(f"    (P_X201={val:#06x}: f_0F390()={f}, Timer={timer_t}, "
+                  f"Flag={flag_t})")
+            check(f"M  f_0F390() bei 0x201-Nutzlast {val:#06x}", f, want_f)
+            check(f"M  Abschaltflag bei 0x201-Nutzlast {val:#06x}", flag_t,
+                  want_flag)
 
         # L: CAN ABOM (P6)
         mcr_o = _can_enter_init(o)
@@ -1533,44 +1671,59 @@ class FlashModel:
         return self.locked or bool(self.cr & CR_LOCK)
 
     def _on_write(self, mu, access, address, size, value, user_data):
-        self.reg_write(address, value, size)
+        if self.reg_write(address, value, size):
+            return True                 # Zugriff wird verworfen (gesperrt/WRP)
+        return None
 
     # -- Registerlogik (auch direkt nutzbar, z. B. fuer Tests) -------------
-    def reg_write(self, address: int, value: int, size: int = 4) -> None:
+    def reg_write(self, address: int, value: int, size: int = 4) -> bool:
+        """Register-/Flashschreibzugriff.
+
+        Rueckgabe True bedeutet: der Zugriff ist wirkungslos (CR gesperrt oder
+        Seite schreibgeschuetzt) -- der Aufrufer muss ihn verwerfen. Fuer die
+        HAL-Schicht macht das ``_on_write`` per Hook-Rueckgabe True.
+        """
         if address == FLASH_SR:
             # Schreiben loescht die W1C-Bits (2 = PGERR, 4 = WRPRTERR, 5 = EOP)
             self.sr &= ~value & 0xFFFFFFFF
-            return
+            return False
         if address == FLASH_CR:
             self.cr = value
             if (value & CR_STR) and (value & CR_PER) and not (value & CR_PG):
                 self._erase_page()
-            return
+            return False
         if address == FLASH_AR:
             self.ar = value
-            return
+            return False
         if address == FLASH_KEYR:
             if self.locked:
-                return
-            if self.key == 0 and value == 0x45670123:
+                return False
+            # Jede Unlock-Sequenz beginnt wieder mit KEY1 (die Hardware
+            # erwartet KEY1, dann KEY2) -- ein falscher Wert sperrt sofort.
+            if value == 0x45670123:
                 self.key = 1
-            elif self.key == 1 and value == 0xCDEF89AB:
+            elif value == 0xCDEF89AB and self.key == 1:
                 self.key = 2
                 self.cr &= ~CR_LOCK
             else:
                 self.key = 0
                 self.cr |= CR_LOCK
-            return
+            return False
         if (FLASH <= address < FLASH + FLASH_SIZE and size == 2
                 and (self.cr & CR_PG)):
+            if self._protected(address):
+                self.sr |= SR_WRPRTERR     # Schreibschutz -> nichts passiert
+                return True
             if self._cr_locked:
-                return                     # Zugriff wird verworfen (CR.LOCK)
+                return True                # Zugriff wird verworfen (CR.LOCK)
             old = int.from_bytes(self.e.mu.mem_read(address, 2), "little")
             new = int(value) & 0xFFFF
             if new & ~old & 0xFFFF:
                 self.sr |= SR_PGERR       # 1-Bits ueber 0 -> Programmierfehler
             self.e.mu.mem_write(address,
                                 ((old & new) & 0xFFFF).to_bytes(2, "little"))
+            return False
+        return False
 
     def reg_read(self, address: int) -> int:
         if address == FLASH_SR:
@@ -1887,11 +2040,14 @@ def scenario_blfull(emu: "Emu") -> int:
         res_erase = None
         before = bytes(e.mu.mem_read(app_base, 32))
         if erase:
-            ack = pr.cmd_erase(app_base, app_len)
+            ack = pr.cmd_erase(app_base, app_len, timeout_ms=5000,
+                               progress=False)
             pl = fw.ack_payload(ack) if ack else None
             res_erase = pl[4] if pl and len(pl) > 4 else None
-            print(f"  Erase-Quittung       : "
-                  f"{'OK (1)' if res_erase == 1 else res_erase}")
+            # Statusbyte: 0 = ok, 1 = Fehler (Bootloader 0x0800134C:
+            # r5 == 1 -> 0, r5 == 2 -> 1; siehe fw.ERASE_OK).
+            print(f"  Erase-Quittung       : Status {res_erase} "
+                  f"({'OK' if res_erase == fw.ERASE_OK else 'FEHLER/keine'})")
             blank = bytes(e.mu.mem_read(app_base, 8)) == b"\xff" * 8
             print(f"  Flash danach leer    : {blank}")
             print(f"  Stub-Statusverlauf   : {fm.status_trace()}")
@@ -2138,6 +2294,7 @@ class _ToolBlTransport:
         self.pending: List[bytes] = []
         self.sent = 0
         self.seq = 0
+        self.prev_reply = False
 
     def send(self, report: bytes) -> None:
         sys.path.insert(0, str(ROOT / "tools"))
@@ -2156,10 +2313,18 @@ class _ToolBlTransport:
         emu = self.emu
         frame = bytes([len(payload)]) + payload
         emu.mu.mem_write(BL_RAW_RX, frame + bytes(0x40 - len(frame)))
-        emu.wr(BL_TXDONE, 1, 1)
+        # Ehrlich wie am Geraet: das TX-Fertig-Flag entsteht nur, wenn der
+        # VORHERIGE Rahmen eine Antwort erzeugt hat. Der Bootloader spiegelt
+        # es beim Empfang nach [0x20000247], und genau daran haengt das
+        # Loeschen von [0x2000001C] -- also die Rueckkehr aus dem Datenstrom.
+        # Ein 0x36-Block antwortet nicht, deshalb war der Transport bisher
+        # unfaithful (er hat das Flag immer gesetzt).
+        emu.wr(BL_TXDONE, 0, 1)
+        emu.wr(BL_FSTATE70 + 1, 1 if self.prev_reply else 0, 1)
         emu.wr(BL_MODE + 1, 1, 1)               # Kanal 1 / Modus 1 (wie HW)
         emu.stop_pcs.add(0x0800190A)
         emu.call(0x08000AAA)
+        self.prev_reply = bool(rec.get("tx"))    # type: ignore[union-attr]
         for pl in rec.get("tx", []):            # type: ignore[union-attr]
             if not pl:
                 continue
@@ -2170,6 +2335,15 @@ class _ToolBlTransport:
 
     def recv(self, timeout_ms: int = 500):
         return self.pending.pop(0) if self.pending else None
+
+    def poll(self, timeout_ms: int = 0):
+        """Wie recv, aber ohne Fehlerbehandlung (Datenstrom)."""
+        return self.pending.pop(0) if self.pending else None
+
+    def reopen(self, timeout_s: float = 30.0) -> bool:
+        """Im Emulator gibt es kein USB: Sitzung bleibt bestehen."""
+        self.pending.clear()
+        return True
 
     def close(self) -> None:
         return None
@@ -2200,13 +2374,19 @@ def scenario_blupload(emu: "Emu") -> int:
           f"Bytes ab 0x{app:08x}")
     proto.cmd_sync()
     proto.cmd_enter_program()      # 0x10 03: setzt [0x20000028] = gueltig
-    proto.cmd_erase(app, erase_len)
+    ack = proto.cmd_erase(app, erase_len, progress=False)
+    res_erase = fw.ack_payload(ack)[4] if ack else None
     blank = bytes(e.mu.mem_read(app, min(16, total))) == b"\xff" * min(16, total)
     proto.cmd_sequencer_start()
     proto.cmd_set_address(app)
     failed = 0
     for i in range(nblocks):
-        rc = proto.cmd_write_block(data[i * 56:(i + 1) * 56])
+        # Stromverfahren: nur der erste Rahmen traegt Kommando + Sequenz.
+        if i == 0:
+            rc = proto.cmd_write_block(data[0:56])
+        else:
+            proto.cmd_write_stream(data[i * 56:(i + 1) * 56])
+            rc = 0
         if rc:
             failed += 1
             if failed < 4:
@@ -2222,13 +2402,15 @@ def scenario_blupload(emu: "Emu") -> int:
     ptr = e.rd(BL_FSTATE + 4)
     errtx = [b.hex(" ") for b in e.rec.get("tx", []) if b and b[0] == 0x7F]
     print(f"[blupload] Kommandos gesendet : {tp.sent}")
+    print(f"[blupload] Erase-Status       : {res_erase} "
+          f"(0 = OK)")
     print(f"[blupload] Erase geloescht    : {blank}")
     print(f"[blupload] Bloecke mit Fehler : {failed}")
     print(f"[blupload] Flash = Image      : {got == data}")
     print(f"[blupload] Schreibzeiger      : {ptr:#010x} "
           f"(erwartet {app + total:#010x})")
-    ok = (blank and failed == 0 and got == data and ptr == app + total
-          and (fpl is None or fpl[0] == 0x76))
+    ok = (res_erase == fw.ERASE_OK and blank and failed == 0 and got == data
+          and ptr == app + total and (fpl is None or fpl[0] == 0x76))
     print("[blupload] ->", "OK" if ok else "MISMATCH")
     return 0 if ok else 1
 
@@ -2322,8 +2504,150 @@ def scenario_blreadback(emu: "Emu") -> int:
     return 0 if ok else 1
 
 
+def scenario_blsticky(emu: "Emu") -> int:
+    """Latch-Zustand: ein Programmfehler blockiert danach ALLES.
+
+    Auf der Hardware beobachtet (2026-10-04): nach einem Schreibversuch ueber
+    *nicht* geloeschten Flash meldet jede Loeschung Status 1 und jeder
+    0x36-Block Fehler 0x72 -- auch auf leerem, ungeschuetztem Bereich. Hier
+    laeuft derselbe echte Bootloader-Code gegen das FLASH-Modell:
+
+      1) Sollweg: Seite loeschen, Block schreiben          -> ok
+      2) Schreiben auf belegten Flash (Inhalt weicht ab)   -> PGERR (bit 2)
+      3) danach: Loeschen einer LEEREN Seite               -> Status 1
+      4) danach: Schreiben auf leeren Bereich              -> 0x72
+      5) kein Kommando entfernt das Bit (0x10/0x37/0x34/0x2E/0x31)
+      6) "Power-Cycle" (FLASH_SR zuruecksetzen)            -> alles geht wieder
+
+    Der Blob prueft beim Eintritt SR bit 4/bit 2 (0x080051E0 bzw. 0x0800527A)
+    und bricht dann sofort ab -- die Routine, die SR per W1C loeschen wuerde
+    (0x08005202, Wert 0x34), liegt HINTER dieser Pruefung. Deshalb hilft nur
+    ein Reset (Power-Cycle) -- genau das ist auf der Hardware passiert.
+    """
+    sys.path.insert(0, str(ROOT / "tools"))
+    import stm_display_fw as fw  # noqa: PLC0415
+
+    data = (ROOT / "data" / "stm32f105_conti.bin").read_bytes()
+    img = fw.Image(bytearray(data))
+    e, fm = _blflash_emu(None, False, data)      # Flash offen, echter Code
+    tp = _ToolBlTransport(e)
+    pr = fw.Protocol(tp, verbose=False, wire="app")
+    ok = True
+
+    def check(name: str, cond: bool, extra: str = "") -> None:
+        nonlocal ok
+        ok = ok and bool(cond)
+        print(f"    [{'ok  ' if cond else 'FEHL'}] {name}"
+              f"{'   ' + extra if extra else ''}")
+
+    # page muss am Ende des App-Bereichs liegen: nur so laesst sich der
+    # Datenstrom nach dem Testblock mit 0xFF-Auffuellen bis 0x08040000
+    # beenden (der Bootloader quittiert erst dort mit 0x76 und nimmt danach
+    # wieder Kommandos an).
+    page = 0x0803F800                            # letzte Seite, wird geloescht
+    other = page + 0x200                         # wird im Strom beschrieben
+    block = img.slice(page + 0x100, 56)
+
+    def end_stream(pr, tp, addr: int, fill: int = 0xA5) -> bool:
+        """Rest bis 0x08040000 fuellen -- erst dort quittiert der Bootloader
+        (0x76) und nimmt wieder Kommandos an.
+
+        Als Fuellmuster bewusst kein 0xFF: so ist der Bereich danach
+        *belegt* und taugt fuer den Doppelschreib-Test.
+        """
+        while addr < 0x08040000:
+            n = min(56, 0x08040000 - addr)
+            pr.cmd_write_stream(bytes([fill]) * n)
+            addr += n
+        a = tp.recv(0)
+        pl = fw.ack_payload(a) if a else None
+        return bool(pl and pl[0] == 0x76)
+
+    def status_of(a) -> Optional[int]:
+        pl = fw.ack_payload(a) if a else None
+        return pl[4] if pl and len(pl) > 4 else None
+
+    print("=== 1) Sollweg: loeschen und schreiben ===")
+    pr.cmd_sync()
+    pr.cmd_enter_program()
+    pr.resync(page)
+    check("Programmierung der Testseite moeglich",
+          pr.cmd_erase(page, 0x800, progress=False) is not None)
+    pr.resync(page + 0x100)
+    rc = pr.cmd_write_block(block)
+    check("Block auf geloeschter Seite", rc == 0, f"rc={rc}")
+    check("Strom mit 0xFF bis 0x08040000 beendet (Antwort 0x76)",
+          end_stream(pr, tp, page + 0x100 + 56),
+          f"Zeiger={e.rd(BL_FSTATE + 4):#010x}")
+
+    print("\n=== 2) Schreiben auf belegten Flash ==")
+    # Programmieren kann nur 1 -> 0. Ein Programmierfehler (PGERR) entsteht
+    # deshalb nur, wenn ein 1-Bit auf ein 0-Bit im Flash trifft -- also die
+    # Umkehrung dessen senden, was wirklich dort steht.
+    dirty = bytes(e.mu.mem_read(other, 56))
+    n_err = len(e.rec.get("err", []))            # type: ignore[union-attr]
+    pr.resync(other)
+    pr.cmd_write_block(bytes(b ^ 0xFF for b in dirty))   # bewusst anders
+    pr.drain_errors(60)
+    neu = e.rec.get("err", [])[n_err:]           # type: ignore[union-attr]
+    check("Fehler 0x72 gemeldet", 0x72 in neu,
+          f"Fehlercodes={[hex(x) for x in neu]}  (Fehlerrahmen werden im "
+          f"Emulator gestubbt, daher ueber rec['err'])")
+    check("PGERR im FLASH_SR gesetzt", bool(fm.sr & SR_PGERR),
+          f"SR=0x{fm.sr:02x}")
+
+    print("\n=== 3) Jetzt eine LEERE Seite loeschen ===")
+    a = pr.cmd_erase(page, 0x800, progress=False)
+    check("Loeschen liefert Status 1", a is None,
+          "Eintrittspruefung des Blobs sieht das Fehlerbit")
+    check("Seite unveraendert (nichts geloescht)",
+          bytes(e.mu.mem_read(page + 0x100, 8)) == block[:8],
+          "Inhalt von vorhin steht noch")
+
+    print("\n=== 4) Schreiben auf leeren Bereich ===")
+    n_err = len(e.rec.get("err", []))          # type: ignore[union-attr]
+    pr.resync(page)
+    pr.cmd_write_block(bytes(56))
+    pr.drain_errors(60)
+    neu = e.rec.get("err", [])[n_err:]         # type: ignore[union-attr]
+    check("Fehler 0x72 trotz leerer Seite", 0x72 in neu,
+          f"Fehlercodes={[hex(x) for x in neu]}")
+
+    print("\n=== 5) Kann irgendein Kommando das Bit loeschen? ===")
+    before = fm.sr
+    pr.cmd_sync()
+    pr.cmd_enter_program()
+    pr.cmd_sequencer_start()
+    pr.cmd_set_address(page)
+    pr.cmd_app_crc()
+    pr.drain_errors(40)
+    # 0x2E (Record schreiben) nutzt Erase+Programm der Seite 0x08007800
+    pr.send_frame(bytes([0x2E, 0xF1, 0x5A]) + bytes([26, 10, 4, 1, 2, 3, 4]))
+    tp.recv(0)
+    pr.drain_errors(40)
+    check("FLASH_SR unveraendert", fm.sr == before,
+          f"vorher=0x{before:02x} nachher=0x{fm.sr:02x}")
+
+    print("\n=== 6) Power-Cycle (SR zuruecksetzen) ===")
+    fm.reg_write(FLASH_SR, 0xFFFFFFFF)           # W1C: alle Fehlerbits loeschen
+    check("SR sauber", not (fm.sr & (SR_PGERR | SR_WRPRTERR)),
+          f"SR=0x{fm.sr:02x}")
+    pr.resync(page)
+    a = pr.cmd_erase(page, 0x800, progress=False)
+    check("Loeschen wieder moeglich", status_of(a) == 0,
+          f"Status={status_of(a)}")
+    pr.resync(page)
+    rc = pr.cmd_write_block(block)
+    check("Schreiben wieder moeglich", rc == 0, f"rc={rc}")
+
+    print()
+    print("ERGEBNIS:", "Latch-Zustand reproduziert und erklaert (nur "
+          "Power-Cycle hilft)" if ok else "Abweichung!")
+    return 0 if ok else 1
+
+
 SCENARIOS = {
-    "blreadback": scenario_blreadback,
+    "blsticky": scenario_blsticky,    "blreadback": scenario_blreadback,
     "flashregs": scenario_flashregs,
     "blupload": scenario_blupload,
     "blflash": scenario_blflash,

@@ -414,3 +414,215 @@ und die Marke `0x3D` fehlt.
   das Durchprobieren der 8 freigegebenen IDs.
 * Der Sender des 11-Byte-Datensatzes fuer Typ 0 (`0x0801D494`, OTA-Kanal) ist
   nicht weiter untersucht.
+
+## 9. Flash-Ablauf auf echter Hardware (Stand 2026-10-04)
+
+### 9.1 Loeschen (`0x31/0x1FF00`)
+
+* Das Loeschen von 224 KiB (112 Seiten a 2 KiB) dauert **~2,5 s**; der
+  Bootloader quittiert erst nach der letzten Seite. Ein 4-s-Wartefenster war
+  zu kurz -- das Tool meldete "keine Antwort", obwohl der Bereich danach leer
+  war. Deshalb: `ERASE_TIMEOUT_MS = 60000` (Option `--erase-timeout S`) mit
+  Fortschrittsausgabe.
+* Antwort `71 01 ff 00 <status>`: **`status = 0` = ok, `1` = Fehler**
+  (Handler `0x080014D2` ueber `0x0800130C`; im Modus-1-Zweig `0x0800134C`
+  wird `r5 == 1` auf `0` und `r5 == 2` auf `1` abgebildet; auf Hardware und im
+  Emulator `blupload` bestaetigt).
+
+### 9.2 Schreiben (`0x36`) -- Sequenz und Quittungen
+
+* Nach `0x37` (Sequencer) **und** `0x34` (Adresse) erwartet das Geraet
+  **Sequenz 1** (am Geraet gemessen: seq 1 -> Programmfehler `0x72`,
+  seq 2/3 -> Sequenzfehler `0x73`).
+* `0x37` allein genuegt nicht: `0x36` antwortet dann mit **`0x24`**
+  ("Datenmodus" fehlt) -- erst `0x34` setzt das Flag.
+* Erfolgreiche `0x36`-Bloecke werden **nicht** einzeln quittiert; nur Fehler
+  kommen sofort (`7f 36 73` Sequenz, `7f 36 72` Programmieren), und einmalig
+  `0x76`, wenn der Zeiger `0x08040000` erreicht.
+* **Ein abgelehnter Block erhoeht die erwartete Sequenz nicht** -- danach
+  scheitert jeder weitere Block mit `0x73`. Fehler also immer mit
+  Resync (0x37 + 0x34) und erneutem Senden beantworten.
+
+### 9.2.1 DATENSTROM-MODUS -- die eigentliche Ursache aller 0x72-Fehler
+
+Der Bootloader kennt **zwei** Betriebsarten, und der Rahmenaufbau wechselt:
+
+| | Kommando-Modus | Datenstrom-Modus |
+|---|---|---|
+| Nutzlast | `[cmd][…]` | **nur Daten** (kein Kommando-/Sequenzbyte) |
+| Laenge | beliebig (cmd-abhaengig) | = Anzahl zu programmierender Bytes |
+| Zieladresse | aus dem Kommando (`0x34`) | Schreibzeiger, laeuft mit |
+| Antwort | je Kommando | nur Fehler bzw. `76` am Ende |
+
+Umschaltung: Das **erste erfolgreiche `0x36`** setzt `[0x2000001C] = 1`
+(Handler `0x08001614`, `strb r1,[r5]` bei `0x08001682`). Ab dann geht
+**jede** Nutzlast an `0x0800168A` statt an den Dispatcher
+(`0x08000B32/34`: `cbz r0, Dispatcher`) und wird mit
+`f_801998(Zeiger, Laenge, payload)` wortwoertlich programmiert.
+
+Zurueck in den Kommandomodus kommt das Geraet nur, wenn
+
+* der Zeiger **exakt `0x08040000`** erreicht (`0x080016C4` -> Antwort `76 <seq>`), oder
+* ein Programmierfehler auftritt (`0x080016AE`: Fehlerantwort `0x72`, Flag = 0).
+
+Das Flag bleibt deshalb so hartnaeckig: geloescht wird es beim Empfang nur,
+wenn der **vorherige** Rahmen eine Antwort erzeugt hat -- Merker ist das
+TX-Fertig-Flag `[0x20000171]`, das `0x08003AD8` nach `[0x20000247]` spiegelt
+und `0x08000ACC` auswertet. Ein `0x36`-Block **antwortet nicht**, also fehlt
+der Merker und der Strom laeuft weiter.
+
+**Damit erklaert sich der Hardwarefehler bei exakt `0x080081C0`** (= 8 x 56):
+Block 1 lief als Kommando (56 Byte), die Bloecke 2..8 wurden als Datenstrom
+mit je **58** Byte Nutzlast (einschliesslich `36 xx`!) programmiert. Der
+Geraetezeiger stand dadurch 14 Byte weiter als die Hostrechnung; das Resync
+`0x37`+`0x34` setzte ihn auf `0x080081C0` **zurueck** -- also mitten in
+beschriebenen Flash. Programmieren kann nur 1 -> 0, die abschliessende
+Verifikation der Blob-Routine faellt durch (Status 4) -> Wrapper 3 ->
+Fehler `0x72`. **Kein WRP, kein 0xFF-Problem.**
+
+**Richtiges Verfahren** (`Protocol.upload_stream()`, ueber `upload … --region app`
+jetzt der Standard):
+
+1. Sitzung (`0x10`) + `0x31/0x10203` (Unlock), Bereich seitenweise loeschen.
+2. `0x37` + `0x34` auf den Start (`0x08008000`) -> Erwartung Sequenz 1.
+3. **Ein** Kommandorahmen `36 01 <56 Byte>`.
+4. Danach 4095 **reine Datenrahmen** a 56 Byte. App-Bereich = `0x38000` Byte =
+   exakt `4096 x 56`, der letzte Rahmen endet also genau auf `0x08040000`
+   -> Antwort `76` und Kommandomodus ist wieder aktiv.
+5. App-CRC (`0x31/0x10202`) pruefen, dann `0x3E 0x80` (Reset).
+
+Wichtig: die 0xFF-Bloecke duerfen **nicht** uebersprungen werden (der Zeiger
+muss lueckenlos bis `0x08040000` laufen); 0xFF auf geloeschtem Flash zu
+programmieren ist erlaubt (nur 1 -> 0 wird geschrieben). Der Blob lehnt
+Adressen `< 0x08007800` ab (`0x080019A6`), der Bootloader-Bereich ist also
+grundsaetzlich nicht ueber `0x36` beschreibbar.
+
+**Falle: die Laenge muss GERADE sein.** Die Programm-Routine rechnet die
+Laenge in Halbwoertern (`0x0800526E: lsrs r0,r0,#1`) und verifiziert genau
+diese Anzahl. Ein einzelnes Byte am Ende wird also **stillschweigend nicht
+programmiert** -- und weil die Verifikation dasselbe verkuerzte Fenster
+prueft, meldet das Geraet trotzdem Erfolg. Am 2026-10-04 auf Hardware
+beobachtet: `36 01 A0` (1 Byte) -> keine Fehlermeldung, aber die
+Datensatzseite blieb `ff ff ff ff ff ff`; der Datenstrom wurde trotzdem
+aktiviert. `Protocol.cmd_write_block()`/`cmd_write_stream()` lehnen ungerade
+Laengen daher mit `ValueError` ab, und `writetest` benutzt einen 2-Byte-Block.
+
+Emulatorbeweis: `python3 tools/emu.py uploadtool` faehrt **beide** Wege -- das
+alte Verfahren muss scheitern ("Geraet kommt nicht zurueck", `[0x2000001C]=1`),
+das Stromverfahren liefert `Flash == Image` (0 abweichende Bytes), Zeiger
+`0x08040000`, App-CRC Status 0 und sauberes `FLASH_SR`.
+
+### 9.3 Upload-Verfahren im Tool -- historisch (`--legacy-blocks`)
+
+> **Ueberholt.** Dieses blockweise Verfahren ist genau das, was am
+> Datenstrom-Modus scheitert (siehe 9.2.1). Es bleibt nur fuer
+> Vergleichsmessungen im Emulator erhalten (`--legacy-blocks`).
+
+`Protocol.upload()` arbeitet in Blockbuendeln (Standard 8 Bloecke a 56 Byte):
+
+1. `0x37` + `0x34` -- Sequencer und Adresse absolut setzen,
+2. Buendel senden,
+3. Fehlerrahmen einsammeln (`--settle-ms`, Standard 40 ms),
+4. `0x24` (Datenmodus fehlt) -> Sitzung neu aufbauen und weiter,
+5. `0x73` (Sequenzfehler) -> **ab dem ersten abgelehnten Block weiter**
+   (siehe 9.5), niemals Bloecke wiederholen, die schon geschrieben sind,
+6. `0x72` (Programmierfehler) -> **sofortiger Abbruch** mit Hinweis auf
+   Power-Cycle (siehe 9.4),
+7. bei USB-Abriss (`HIDException`) neu verbinden (ueber
+   `Transport.reopen()`), Sitzung neu aufbauen und weiter,
+8. `--pace-ms` (Standard 20 ms) Pause je Buendel,
+9. Endkontrolle: `0x31/0x10202` -- **erst bei Status 0** wird `0x3E` (Reset)
+   ausgeloest; bei Status 1 bleibt das Geraet im Bootloader (erneut flashen,
+   dann wird vorher geloescht).
+
+Nach dem Loeschen (und gelegentlich mitten im Schreiben) meldet hidapi einen
+Transportfehler (``OSError``/``HIDException``). Das ist **kein Abstecken**: das
+Geraet bleibt am Bus, ``dmesg`` bleibt leer. Ursache ist die Unlock-Routine des
+Blobs (`+0x2C`), die fuer Flash-Befehle den Systemtakt umschaltet:
+
+* ``RCC_CR &= 0xFEF2FFFF`` -> HSEON, HSEBYP, CSSON und **PLLON** aus,
+* ``RCC_CR |= 1`` (HSI an) und ``RCC_CFGR = 0x9F0000`` (SW = HSI),
+* danach ``FLASH_KEYR = KEY1/KEY2``.
+
+Der USB-Takt kommt vom PLL (USBPRE) -- also ist das Geraet waehrend und kurz
+nach einem Flash-Befehl **stumm**, ohne sich abzumelden. Deshalb:
+
+* ``Transport.recv()`` wiederholt einen fehlgeschlagenen Lesevorgang einmal
+  nach 20 ms,
+* ``Transport.reopen()`` unterscheidet: Knoten noch da -> nur neu oeffnen
+  (Stall), Knoten weg -> auf Neuanmeldung warten,
+* ``--settle-ms`` (120 ms) und ``--pace-ms`` (50 ms) halten die Pausen
+  gross genug, damit die stumme Phase nicht mit dem naechsten Kommando
+  zusammenfaellt,
+* jede Sitzung entsperrt den Flash explizit mit ``0x31/0x10203``.
+
+### 9.4 Latchender Flash-Fehlerzustand -- Mechanismus bewiesen
+
+Wer auf **nicht geloeschten** Flash programmiert (Loeschen unvollstaendig
+oder Block doppelt geschrieben), setzt beim STM ein Fehlerbit im `FLASH_SR`.
+Danach nimmt der Controller **weder Loeschen noch Programmieren** an, auch
+nicht auf leerem, ungeschuetztem Bereich:
+
+* Loeschen meldet **Status 1** (und loescht nichts),
+* jeder `0x36`-Block meldet **`7f 36 72`**.
+
+Ursache im Code: der RAM-Blob prueft beim Eintritt `SR` bit 4/bit 2
+(`0x080051E0` Erase, `0x0800527A` Program) und bricht dann ab. Die Routine,
+die `SR` per W1C (`0x34` = bits 2/4/5) wieder loeschen wuerde, steht erst
+**hinter** dieser Pruefung (`0x08005202`) -- sie wird nie erreicht.
+
+**Kein Kommando entfernt das Bit** (getestet: `0x10`, `0x37`, `0x34`,
+`0x31/0x10202`, `0x2E`), und ein Software-Reset (`0x3E 0x80`) half auf der
+Hardware ebenso wenig wie 90 s Stille. **Nur ein Power-Cycle** (Akku/Display
+kurz trennen) setzt `FLASH_SR` zurueck.
+
+Nachgestellt im Emulator: `python3 tools/emu.py blsticky` laeuft mit dem
+*echten* Bootloader-Code und dem FLASH-Modell und prueft alle sechs Schritte
+(Sollweg, PGERR, Erase -> Status 1, Schreiben -> 0x72, kein Kommando loescht
+das Bit, Power-Cycle hilft) -- 13/13 Checks gruen.
+
+### 9.6 Flash-Sonde vor dem Schreiben (Datensatzseite 0x08007800)
+
+Der Erase-Befehl meldet auch dann Erfolg, wenn das Flash-Interface gesperrt
+ist (er prueft nur BSY). Der erste Programmierversuch trifft dann **belegten**
+Flash, setzt ein Fehlerbit und laesst danach gar nichts mehr zu (9.4).
+
+Deshalb prueft ``Protocol.flash_canary()`` den kompletten Pfad
+Unlock/Erase/Programm/Verify **vor** dem App-Schreiben -- auf der einzigen
+Seite, die beschreibbar *und* wieder lesbar ist: dem Geraeterekord bei
+``0x08007800`` (ausserhalb der App-CRC).
+
+* schreiben: ``0x2E`` mit Magic ``0xF15A``, Payload-Laenge exakt 10
+  (Jahr/Monat/Tag + 4 Datenbytes), ACK ``6e f1 5a``,
+* zuruecklesen: ``0x22``/``0xF15B`` -> 6 Byte, Vergleich mit dem Geschriebenen.
+
+Die Sonde laeuft dreimal: nach dem Sitzungsaufbau, nach dem Loeschen und nach
+jedem Sitzungs-Neuaufbau (z. B. nach einem Takt-Stall). Schlaegt sie fehl,
+wird **nichts** im Applikationsbereich geschrieben -- es genuegt ein
+Power-Cycle, das Geraet bleibt unversehrt. Im Emulator geprueft durch
+``python3 tools/emu.py uploadtool`` (dort laeuft die Sonde ueber den echten
+Code mit).
+
+### 9.5 Regel: jeden Halbwort nur EINMAL programmieren
+
+Weil ein zweiter Schreibzugriff auf dieselbe Stelle das Fehlerbit setzt, darf
+ein Wiederholungsversuch **niemals** schon geschriebene Bloecke erneut senden.
+Nutze die Fehlerrahmen als Zaehler: bei einem Sequenzfehler (`0x73`) wurde der
+erste abgelehnte Block und alles danach **nicht** geschrieben, alles davor
+schon. Also gilt `geschrieben = gesendet - Fehlerrahmen`, und der
+Wiederaufsetzpunkt ist die Adresse des ersten abgelehnten Blocks. Deshalb
+wurde die fruehere Variante "Buendel komplett wiederholen" und auch ein
+zweiter Durchgang ohne Loeschen (`--passes`) wieder entfernt.
+
+End-to-End im Emulator: `python3 tools/emu.py uploadtool` fahrt den echten
+`Protocol.upload()`-Pfad (Loeschen, Buendel mit Resync, CRC-Endkontrolle,
+Reset) gegen den echten Bootloader-Code -- Flash == Image, Zeiger korrekt,
+CRC-Status 0, keine Fehler, `FLASH_SR` sauber.
+
+Empfohlener Ablauf bei diesem Bild:
+
+1. Stromversorgung trennen, kurz warten, wieder anschliessen,
+2. `python3 tools/stm_display_fw.py info` (Bootloader muss erscheinen),
+3. `python3 tools/stm_display_fw.py flash data/stm32f105_bms_control.bin --region app`
+   -- Erase, Buendel mit Wiederholungen, CRC-Endkontrolle, Reset.
+

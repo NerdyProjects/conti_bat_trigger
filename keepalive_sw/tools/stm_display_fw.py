@@ -58,6 +58,20 @@ APP_CRC_LEN = APP_CRC_ADDR - APP_BASE  # Bytes, ueber die die CRC laeuft
 CRC_OK = 0
 CRC_MISMATCH = 1
 
+# Wartezeit auf die Loeschquittung (0x31/0x1FF00). Der Bootloader quittiert
+# erst, wenn die letzte Seite geloescht ist, und schleift dabei synchron durch
+# alle Seiten (App-Bereich = 224 KiB = 112 Seiten). Ein kurzes Zeitfenster
+# fuehrt zu "keine Antwort", obwohl das Loeschen laeuft: am 2026-10-04 waren
+# 4 s zu kurz (Quittung kam nach ~2,5-4,5 s), der Bereich war danach trotzdem
+# leer. Am Geraet gemessen: 2,5 s bei bereits geloeschtem Bereich.
+ERASE_TIMEOUT_MS = 60000
+
+# Statusbyte der Loeschquittung: der Antwortbauer 0x0800130C bildet den
+# Erfolgswert 1 auf **0** und den Fehlerwert 2 auf **1** ab
+# (0x0800134C..0x0800135A: strb r6/r3 mit r6=0, r3=1). Auf Hardware
+# bestaetigt: erfolgreiches Loeschen -> Status 0.
+ERASE_OK = 0
+
 # Geraeterekord: letzte 2-KiB-Seite des Bootloaders und die einzige
 # Flash-Adresse, die der Bootloader ueberhaupt auslesen kann (Kommando 0x22,
 # Handler 0x08000F54). Im Original leer (0xFF).
@@ -848,7 +862,70 @@ class Transport:
         self.dev.write(b"\x00" + report)  # Report-ID 0 voranstellen (hidapi)
 
     def recv(self, timeout_ms: int = 500) -> Optional[bytes]:
-        data = self.dev.read(REPORT_SIZE, timeout_ms)
+        """Report lesen -- mit einer Wiederholung bei einem Lese-/Schreibfehler.
+
+        Waehrend ein Flash-Befehl laeuft, schaltet die Bootloader-Firmware den
+        Systemtakt auf HSI und PLL/HSE ab (Unlock-Routine Blob +0x2C,
+        ``RCC_CR &= 0xFEF2FFFF`` / ``RCC_CFGR = 0x9F0000``). Der USB-Takt kommt
+        vom PLL -- das Geraet bleibt zwar am Bus (dmesg schweigt), antwortet
+        aber kurz nicht; hidapi wirft dann OSError/HIDException. Ein zweiter
+        Versuch nach kurzer Pause faengt das meist ab.
+        """
+        try:
+            data = self.dev.read(REPORT_SIZE, timeout_ms)
+        except Exception as exc:                   # noqa: BLE001
+            self.log.append(("ERR", f"{type(exc).__name__}: {exc}".encode()))
+            time.sleep(0.02)
+            try:
+                data = self.dev.read(REPORT_SIZE, timeout_ms)
+            except Exception as exc2:              # noqa: BLE001
+                self.log.append(("ERR",
+                                 f"{type(exc2).__name__}: {exc2}".encode()))
+                # hidapi meldet hier oft "Success" (errno 0) -- das ist kein
+                # Erfolg, sondern ein stummer/gestallter Endpunkt oder ein
+                # abgerissener Knoten. Einmal den Knoten neu oeffnen und ein
+                # letztes Mal lesen; danach **None** zurueckgeben, damit der
+                # Aufrufer entscheiden kann (kein Absturz mitten im Vorgang).
+                if not getattr(self, "_reopening", False):
+                    self._reopening = True
+                    try:
+                        if self.reopen(3.0):
+                            try:
+                                data = self.dev.read(REPORT_SIZE, timeout_ms)
+                            except Exception as exc3:   # noqa: BLE001
+                                self.log.append(
+                                    ("ERR", f"{type(exc3).__name__}: "
+                                            f"{exc3}".encode()))
+                                return None
+                        else:
+                            return None
+                    finally:
+                        self._reopening = False
+                else:
+                    return None
+        if not data:
+            return None
+        data = bytes(data)
+        self.log.append(("IN", data))
+        return data
+
+    def poll(self, timeout_ms: int = 0) -> Optional[bytes]:
+        """Lesen **ohne** Fehlerbehandlung -- Transportproblem -> ``None``.
+
+        Fuer den Datenstrom: dort gibt es ausser Fehlerrahmen und der
+        Endquittung nichts zu lesen, und hidapi meldet beim Pollen auf einem
+        gerade beschaeftigten Geraet sporadisch ``-1`` mit errno 0
+        (``HIDException: Success`` -- hidraw-Poll ohne ``POLLIN``/
+        ``POLLERR``). Das darf den Strom nicht abbrechen, deshalb wird hier
+        weder neu geoeffnet noch eine Ausnahme geworfen; die Zaehler
+        ``soft_errors``/``stall_reopens``/``lost_reopens`` machen es sichtbar.
+        """
+        try:
+            data = self.dev.read(REPORT_SIZE, timeout_ms)
+        except Exception as exc:                   # noqa: BLE001
+            self.log.append(("ERR", f"{type(exc).__name__}: {exc}".encode()))
+            self.soft_errors = getattr(self, "soft_errors", 0) + 1
+            return None
         if not data:
             return None
         data = bytes(data)
@@ -861,10 +938,74 @@ class Transport:
         except Exception:
             pass
 
+    def reopen(self, timeout_s: float = 30.0) -> bool:
+        """Nach einem Transportfehler wieder sprechbar werden.
+
+        Zwei Faelle, die hier unterschieden werden:
+
+        * **USB-Stall** (Normalfall): das Geraet ist weiter am Bus (der Kernel
+          meldet nichts, ``dmesg`` bleibt leer), antwortet aber kurz nicht --
+          die Firmware schaltet fuer Flash-Befehle den Systemtakt um, der
+          USB-Takt (PLL) faellt dabei weg. Dann genuegt es, denselben Knoten
+          neu zu oeffnen.
+        * **echtes Abstecken/Neu-Anmelden**: der Knoten ist verschwunden, dann
+          wird auf das Wiederauftauchen gewartet (udev-Regel kann beim frischen
+          Knoten kurz fehlen, daher mehrere Versuche).
+        """
+        self.close()
+        present = False
+        try:
+            present = bool(find_bootloader(verbose=False))
+        except Exception:                          # noqa: BLE001
+            present = False
+        # Art des Neuaufbaus merken: "stall" = Geraet haengt weiter am Bus,
+        # nur der Handle ist tot (Taktumschaltung der Firmware waehrend eines
+        # Flash-Befehls). Das ist harmlos und die Firmware-Zustaende (Sitzung,
+        # Schreibzeiger) bleiben erhalten. "lost" = Knoten war wirklich weg.
+        self.reopen_kind = "stall" if present else "lost"
+        if present:
+            print("[usb] Geraet haengt weiter am Bus -- Knoten neu oeffnen "
+                  "(Taktumschaltung der Firmware)", flush=True)
+        else:
+            print("[usb] Knoten ist verschwunden -- auf Neuanmeldung warten "
+                  "...", flush=True)
+        t0 = time.time()
+        last = ""
+        while time.time() - t0 < timeout_s:
+            try:
+                for d in find_bootloader(verbose=False) or ():
+                    try:
+                        self.dev = _open_hid(d["path"])
+                        self.reopens = getattr(self, "reopens", 0) + 1
+                        self.stall_reopens = getattr(self, "stall_reopens", 0) + \
+                            (1 if self.reopen_kind == "stall" else 0)
+                        self.lost_reopens = getattr(self, "lost_reopens", 0) + \
+                            (1 if self.reopen_kind == "lost" else 0)
+                        return True
+                    except Exception as exc:        # noqa: BLE001
+                        last = f"{type(exc).__name__}: {exc}"
+            except Exception as exc:                # noqa: BLE001
+                last = f"{type(exc).__name__}: {exc}"
+            time.sleep(0.25)
+        print(f"[usb] kein Geraet gefunden ({last})")
+        return False
+
 
 # --------------------------------------------------------------------------
 # Protokoll (rekonstruiert aus dem Disassembly)
 # --------------------------------------------------------------------------
+def _is_transport_error(exc: BaseException) -> bool:
+    """Ist das ein USB-/Transportfehler (kein Protokoll-/Logikfehler)?
+
+    Typisch: ``OSError``/``HIDException`` beim Lesen oder Schreiben, wenn die
+    Firmware waehrend eines Flash-Befehls den Systemtakt umschaltet und der
+    USB-Takt (PLL) kurz wegfaellt. Das Geraet bleibt dabei am Bus -- der
+    Kernel meldet nichts.
+    """
+    return isinstance(exc, (IOError, OSError)) or \
+        "HID" in type(exc).__name__
+
+
 class DryTransport:
     """Fuer --dry-run: sendet nichts, protokolliert nur."""
 
@@ -897,9 +1038,16 @@ class Protocol:
 
     def __init__(self, tp: Transport, verbose: bool = True,
                  wire: str = "app",
-                 block_ack: Optional[bool] = None) -> None:
+                 block_ack: Optional[bool] = None,
+                 erase_timeout_ms: int = ERASE_TIMEOUT_MS,
+                 erase_chunk: int = 0x800,
+                 erase_pause_ms: int = 60) -> None:
         self.tp = tp
         self.verbose = verbose
+        self.erase_timeout_ms = erase_timeout_ms
+        self.erase_chunk = erase_chunk
+        self.erase_pause_ms = erase_pause_ms
+        self.last_erase_status: Optional[int] = None
         # "app"  = [seq][0x01][0x3D][id_lo][id_hi][len][payload]  <-- richtig
         # "raw"  = [len][payload]            (falsch, nie bestaetigt)
         # "hdr"  = [0x02][0x21][len][payload] (anderer Kanal)
@@ -989,7 +1137,9 @@ class Protocol:
         self.tp.send(rep)
         self.expect_ack(timeout_ms=250)
 
-    def cmd_erase(self, addr: int, length: int) -> Optional[bytes]:
+    def cmd_erase(self, addr: int, length: int,
+                  timeout_ms: Optional[int] = None,
+                  progress: bool = True) -> Optional[bytes]:
         """0x31 = Flash loeschen (Unterkommando 0x1FF00).
 
         Der Handler 0x080013A4 liest aus payload[1..3] einen 24-Bit-Wert
@@ -998,20 +1148,203 @@ class Protocol:
             0x1FF00  -> 0x080013FE -> 0x0800148A  -> 0x08001964(addr, len)
             0x10202  -> 0x08001404  CRC der Applikation pruefen
 
-        Auf Hardware bestaetigt: Praefix ``31 01 ff 00 00`` wird mit ``71``
-        (= 0x31 | 0x40) quittiert. Uebrige Praefixe liefern Fehler 0x12.
+        Uebrige Praefixe liefern Fehler 0x12.
 
         0x0800148A verlangt Payload-Laenge **13**, Adresse aus payload[5..8]
         und Laenge aus payload[9..12], beide Big-Endian; die Startadresse muss
         auf eine 2-KiB-Seite ausgerichtet sein.
+
+        **Antwortzeit**: der Bootloader quittiert erst, wenn die letzte Seite
+        geloescht ist -- er arbeitet dabei synchron alle Seiten ab (App-Bereich
+        = 112 Seiten). Deshalb wartet diese Funktion ``ERASE_TIMEOUT_MS``
+        (60 s) und meldet den Fortschritt; ein kurzes Fenster liefert sonst
+        scheinbar "keine Antwort", obwohl das Loeschen gelaufen ist
+        (genau das ist am 2026-10-04 passiert).
+
+        Antwort: ``71 01 ff 00 <status>``; ausgewertet wird ``status``
+        (0 = ok, sonst Fehler).
+
+        Rueckgabe: Antwortreport, oder ``None`` bei fehlender/fehlerhafter
+        Quittung.
         """
         if addr % 2048:
             raise ValueError("Adresse muss auf 2-KiB-Seite ausgerichtet sein")
+        if timeout_ms is None:
+            timeout_ms = self.erase_timeout_ms
+        self.last_erase_status: Optional[int] = None
         payload = (bytes([0x31, 0x01, 0xFF, 0x00, 0x00])
                    + struct.pack(">I", addr) + struct.pack(">I", length))
         assert len(payload) == 13, len(payload)
         self.send_frame(payload)
-        return self.expect_ack_strict(0x31)
+        t0 = time.time()
+        last = -1
+        while True:
+            left = timeout_ms - int((time.time() - t0) * 1000)
+            if left <= 0:
+                if progress:
+                    print(f"  ... {timeout_ms / 1000:.0f} s ohne Quittung "
+                          f"verstrichen", flush=True)
+                return None
+            r = self.tp.recv(min(1000, left))
+            if not r:
+                if progress:
+                    sec = int(time.time() - t0)
+                    if sec and sec != last and sec % 2 == 0:
+                        last = sec
+                        print(f"  ... Loeschen laeuft, warte auf Quittung "
+                              f"({sec} s von {timeout_ms / 1000:.0f} s)",
+                              flush=True)
+                continue
+            pl = ack_payload(r)
+            if pl is None or len(pl) < 5:
+                if self.verbose:
+                    print(f"  <- [verworfen] {r[:12].hex(' ')}")
+                continue
+            if pl[0] == 0x7F:
+                err = pl[2] if len(pl) > 2 else 0
+                print(f"  <- [FEHLER 0x{err:02x}] {r[:14].hex(' ')}")
+                return None
+            if pl[0] != (0x31 | 0x40) or pl[1:3] != b"\x01\xff":
+                if self.verbose:
+                    print(f"  <- [verworfen] {r[:14].hex(' ')}")
+                continue
+            status = pl[4]
+            self.last_erase_status = status
+            if self.verbose:
+                print(f"  <- [ACK] {r[:14].hex(' ')}  Status {status}"
+                      f"{' (ok)' if status == ERASE_OK else ' (FEHLER)'}")
+            if status != ERASE_OK:
+                print(f"[erase] Geraet meldet Fehlerstatus {status} "
+                      f"(0 = ok; 1 = Adresse/Laenge/WRP/Busy).")
+                return None
+            return r
+
+    def cmd_flash_unlock(self, timeout_ms: int = 2000) -> bool:
+        """0x31/0x10203 = Flash entsperren (Handler 0x080013DA).
+
+        Der Handler ruft **nur** die Unlock-Routine des RAM-Blobs auf
+        (Trampolin 0x08001004 -> Blob +0x2C: HSI/RCC einrichten, dann
+        FLASH_KEYR = KEY1/KEY2) und verlangt Payload-Laenge 4 sowie das
+        'gueltig'-Flag aus ``0x10``.
+
+        Die Erase- und Programm-Wrapper rufen denselben Unlock zwar selbst
+        auf, aber der offizielle Ablauf des Bootloaders hat dieses Kommando --
+        es schadet nicht und stellt sicher, dass das Flash-Interface offen ist
+        (vermutlich der Grund, warum nach einem USB-Neuaufbau des Geraets
+        Loeschen/Programmieren scheinbar wirkungslos blieben).
+        """
+        self.send_frame(bytes([0x31, 0x01, 0x02, 0x03]))
+        t0 = time.time()
+        while time.time() - t0 < timeout_ms / 1000.0:
+            r = self.tp.recv(300)
+            if not r:
+                continue
+            pl = ack_payload(r)
+            if pl is None:
+                continue
+            if pl[0] == 0x7F:
+                err = pl[2] if len(pl) > 2 else 0
+                print(f"  <- [FEHLER 0x{err:02x}] beim Entsperren 0x10203")
+                return False
+            if pl[0] == 0x71 and pl[1:4] == b"\x01\x02\x03":
+                if self.verbose:
+                    print(f"  <- [ACK] 0x10203 Flash entsperrt")
+                return True
+        print("[proto] 0x10203 (Flash entsperren) wurde nicht quittiert.")
+        return False
+
+    def erase_range(self, addr: int, length: int, chunk: int = 0x800,
+                    pause_ms: int = 60, progress: bool = True) -> bool:
+        """Bereich loeschen -- in Bloecken mit Statuspruefung nach jedem Block.
+
+        Ein einziger Riesen-Auftrag (0x38000) hat zwei Nachteile: waehrend der
+        ~2,5 s spricht das Geraet kein USB (der Host sieht einen Abriss), und
+        ein Status wird nur *einmal* am Ende geprueft. In Bloecken zu
+        ``chunk`` Bytes (Standard 32 KiB = 16 Seiten) bleibt der Host in
+        Kontakt und faellt ein Teilfehler (Status 1) **sofort** auf -- statt
+        erst, wenn der Schreibvorgang danach in Fehler 0x72 laeuft.
+        """
+        chunk = max(0x800, chunk & ~0x7FF)
+        todo = list(range(addr, addr + length, chunk))
+        for n, a in enumerate(todo, 1):
+            ln = min(chunk, addr + length - a)
+            for attempt in (1, 2):
+                if progress:
+                    print(f"[erase] Block {n}/{len(todo)}: 0x{a:08x} "
+                          f"({ln} Bytes)"
+                          f"{' (Wiederholung)' if attempt > 1 else ''}",
+                          flush=True)
+                if self.cmd_erase(a, ln, progress=False) is not None:
+                    if pause_ms:
+                        time.sleep(pause_ms / 1000.0)
+                    break
+                # Kein gueltiges ACK: entweder echter Fehler (Status 1 = Flash
+                # gesperrt/Fehlerbit) oder das Geraet hat sich neu am USB
+                # angemeldet. Beides einmal mit frischer Sitzung versuchen.
+                print(f"[erase] Block {n} ohne gueltige Quittung -- neu "
+                      f"verbinden (Versuch {attempt}/2)", flush=True)
+                if not self.open(30.0) or not self.start_session():
+                    return False
+            else:
+                return False
+        return True
+
+    def flash_canary(self, timeout_ms: int = 3000,
+                     verbose: bool = True) -> bool:
+        """Prueft den kompletten Flash-Pfad -- **vor** dem App-Schreiben.
+
+        Die Geraeterekord-Seite (0x08007800) liegt im Bootloader-Bereich (nicht
+        in der App-CRC) und ist ueber ``0x2E`` beschreibbar sowie ueber
+        ``0x22``/``0xF15B`` wieder **lesbar**. Damit ist sie der einzige Ort,
+        an dem sich Unlock + Erase + Programm + Verify funktional pruefen
+        lassen: Datensatz schreiben und zuruecklesen.
+
+        Warum das wichtig ist: meldet der Erase-Befehl auch dann Erfolg, wenn
+        das Flash-Interface gesperrt ist (er prueft nur BSY, nicht WRPRTERR),
+        dann trifft der erste Programmierversuch **belegten** Flash, setzt ein
+        Fehlerbit und laesst danach gar nichts mehr zu (siehe
+        ``tools/emu.py blsticky``). Mit dieser Sonde merkt man das *bevor*
+        der App-Bereich angefasst wird -- und ein Power-Cycle genuegt.
+
+        Rueckgabe: True, wenn Schreiben *und* Zuruecklesen geklappt haben.
+        """
+        self._canary_n = getattr(self, "_canary_n", 0) + 1
+        # Bei jedem Aufruf ANDERE Daten: sonst sieht ein fehlgeschlagener
+        # Schreibvorgang wie Erfolg aus, weil der alte Inhalt gleich waere.
+        data = bytes([26, (self._canary_n % 12) + 1, (self._canary_n % 28) + 1,
+                      0x11, 0x22, 0x33, self._canary_n & 0xFF])
+        payload = bytes([0x2E, 0xF1, 0x5A]) + data           # Laenge exakt 10
+        assert len(payload) == 10, len(payload)
+        self.send_frame(payload)
+        ack = None
+        t0 = time.time()
+        while time.time() - t0 < timeout_ms / 1000.0:
+            r = self.tp.recv(300)
+            if not r:
+                continue
+            pl = ack_payload(r)
+            if pl is None:
+                continue
+            if pl[0] == 0x6E:                                # ACK von 0x2E
+                ack = pl
+                break
+            if pl[0] == 0x7F:
+                if verbose:
+                    print(f"[canary] 0x2E meldet Fehler 0x{pl[2]:02x} -- das "
+                          f"Flash-Interface nimmt keine Schreibzugriffe an.")
+                return False
+        if ack is None:
+            if verbose:
+                print("[canary] 0x2E wurde nicht quittiert.")
+            return False
+        back = self.cmd_read_record()
+        ok = back is not None and back[:6] == data[:6]
+        if verbose:
+            print(f"[canary] geschrieben {data[:6].hex(' ')} / gelesen "
+                  f"{back.hex(' ') if back else '-'} -> "
+                  f"{'Flash-Pfad ok' if ok else 'FEHLER: Schreiben wirkungslos '}"
+                  f"{'oder Zugriff gesperrt' if not ok else ''}", flush=True)
+        return ok
 
     def cmd_app_crc(self, tries_len: Tuple[int, ...] = (8, 4)) -> Optional[int]:
         """0x31 mit Unterkommando 0x10202 = Applikations-CRC pruefen.
@@ -1044,6 +1377,13 @@ class Protocol:
                     continue
                 return None
             if pl[0] == 0x71 and len(pl) > 4:
+                if pl[1:4] != b"\x01\x02\x02":
+                    # Z. B. eine verspaetete Loeschquittung (Unterkommando
+                    # 0x1FF00) -- deren Statusbyte ist kein CRC-Ergebnis.
+                    if self.verbose:
+                        print(f"  <- [verworfen, anderes Unterkommando] "
+                              f"{r[:14].hex(' ')}")
+                    continue
                 return pl[4]
         return None
 
@@ -1114,40 +1454,73 @@ class Protocol:
             print(f"[verify] deep (SCHREIBT): Seite 0x{page:08x} loeschen und "
                   f"{len(blob)} Bytes aus dem Image schreiben")
             if self.cmd_erase(page, 0x800) is None:
-                print("[verify] deep: Loeschen fehlgeschlagen")
+                print("[verify] deep: keine gueltige Loeschquittung -- die "
+                      "Seite ist danach\n"
+                      "         moeglicherweise leer; das Geraet bleibt im "
+                      "Bootloader und kann\n"
+                      "         einfach neu geflasht werden.")
                 return 2
             self.cmd_sequencer_start()
             self.cmd_set_address(page)
             failed = 0
+            # Stromverfahren: nur der erste Rahmen traegt Kommando + Sequenz,
+            # sonst wuerde der Bootloader ab dem zweiten Rahmen die Nutzlast
+            # wortwoertlich (mit Kommandobyte!) ab dem Zeiger programmieren.
+            rest = 0x08040000 - (page + len(blob))
+            first = True
             for i in range(0, len(blob), 56):
-                if self.cmd_write_block(blob[i:i + 56]):
-                    failed += 1
+                blk = blob[i:i + 56]
+                if first:
+                    if self.cmd_write_block(blk):
+                        failed += 1
+                    first = False
+                else:
+                    self.cmd_write_stream(blk)
+            # Bis 0x08040000 auffuellen -- nur dann quittiert der Bootloader
+            # (0x76) und ist wieder im Kommandomodus.
+            while rest > 0:
+                n = min(56, rest)
+                self.cmd_write_stream(b"\xff" * n)
+                rest -= n
             if failed:
                 print(f"[verify] deep: {failed} Block/Bloecke nicht geschrieben")
                 return 2
-            self.tp.recv(4000)          # Abschlussquittung bei 0x08040000
+            ack = self.tp.recv(4000)     # Abschlussquittung bei 0x08040000
+            if ack and ack_payload(ack) and ack_payload(ack)[0] != 0x76:
+                print(f"[verify] deep: Abschluss war "
+                      f"{ack_payload(ack).hex(' ')}, erwartet 0x76")
         res = self.cmd_app_crc()
         if res is None:
             print("[verify] Geraet hat die CRC-Abfrage nicht akzeptiert.")
             return 2
         return 0 if res == CRC_OK else 1
 
-    def cmd_enter_program(self) -> None:
+    def cmd_enter_program(self) -> bool:
         """0x10 = Modus setzen (Payload-Laenge 2, Arg 2/3/0x82/0x83).
 
         Nur Arg 2 und 3 (bzw. 0x82/0x83) setzen das 'Gueltig'-Flag
-        [0x20000028]; 0x34 verlangt dieses Flag. Antwort im Emulator:
-        '50 03 01 f4 03 e8'.
+        [0x20000028]; 0x34 verlangt dieses Flag. Antwort: ``50 03 01 f4 03 e8``
+        (Emulator wie Hardware).
+
+        Rueckgabe: True, wenn das ACK 0x50 kam.
         """
         self.send_frame(bytes([0x10, 0x03]))
-        ack = self.expect_ack()
-        if ack and self.verbose:
-            print(f"     Modus/Info = {ack[:6].hex(' ')}")
+        ack = self.expect_ack_strict(0x10, timeout_ms=1500, tries=6)
+        if ack is None:
+            print("[proto] 0x10 (Modus setzen) wurde nicht quittiert.")
+            return False
+        pl = ack_payload(ack)
+        if self.verbose and pl:
+            print(f"     Modus/Info = {pl.hex(' ')}")
+        return True
 
-    def cmd_sequencer_start(self) -> None:
-        """0x37 = Sequencer zuruecksetzen (Seq = 1, Zeiger = 0). Antwort 0x77."""
+    def cmd_sequencer_start(self) -> bool:
+        """0x37 = Sequencer zuruecksetzen (Seq = 1, Zeiger = 0). Antwort 0x77.
+
+        Rueckgabe: True, wenn das ACK 0x77 kam.
+        """
         self.send_frame(bytes([0x37]))
-        self.expect_ack()
+        return self.expect_ack_strict(0x37, timeout_ms=1500, tries=6) is not None
 
     def cmd_set_address(self, addr: int, nib: int = 0x03) -> None:
         """0x34: Schreibadresse setzen (32 Bit Big-Endian).
@@ -1160,7 +1533,100 @@ class Protocol:
         assert len(payload) == 11
         self.send_frame(payload)
         self.addr = addr
-        self.expect_ack()
+        return self.expect_ack_strict(0x34, timeout_ms=1500, tries=6) is not None
+
+    # -- Sitzung, Reconnect, Fehlerrahmen ---------------------------------
+    def close(self) -> None:
+        try:
+            self.tp.close()
+        except Exception:                      # noqa: BLE001
+            pass
+
+    def open(self, timeout_s: float = 30.0) -> bool:
+        """Transport wieder sprechbar machen (nach einem USB-Stall).
+
+        Fuer Flash-Befehle schaltet die Firmware den Systemtakt auf HSI und
+        PLL/HSE ab; der USB-Takt kommt vom PLL, also bleibt das Geraet kurz
+        stumm und hidapi meldet einen Fehler, obwohl der Knoten weiter existiert
+        (``dmesg`` bleibt leer). Kann der Transport das selbst (``reopen``, z. B.
+        im Emulator), wird er gefragt; sonst wird ein neues Geraet gesucht.
+        """
+        fn = getattr(self.tp, "reopen", None)
+        if callable(fn):
+            try:
+                return bool(fn(timeout_s))
+            except Exception as exc:                # noqa: BLE001
+                print(f"[proto] Reconnect fehlgeschlagen: {exc}")
+                return False
+        self.close()
+        t0 = time.time()
+        last = ""
+        while time.time() - t0 < timeout_s:
+            try:
+                for d in find_bootloader(verbose=False) or ():
+                    try:
+                        self.tp = Transport(d)
+                        if self.verbose:
+                            print(f"  [dev] verbunden: {d.get('path')}")
+                        return True
+                    except Exception as exc:    # noqa: BLE001
+                        last = f"{type(exc).__name__}: {exc}"
+            except Exception as exc:            # noqa: BLE001
+                last = f"{type(exc).__name__}: {exc}"
+            time.sleep(0.25)
+        print(f"[proto] kein Geraet gefunden ({last})")
+        return False
+
+    def start_session(self) -> bool:
+        """0xFE-Sync + 0x10 03 + Flash entsperren (0x10203).
+
+        Voraussetzung fuer 0x34/0x31/0x36. Das explizite Entsperren gehoert
+        zum dokumentierten Ablauf und macht den Flash-Zugriff unabhaengig
+        davon, ob ein vorheriges Kommando das Interface wieder gesperrt hat.
+        """
+        self.cmd_sync()
+        if not self.cmd_enter_program():
+            return False
+        return self.cmd_flash_unlock()
+
+    def resync(self, addr: int) -> bool:
+        """Schreibzeiger absolut setzen: 0x37 (Seq = 1) + 0x34 (Adresse).
+
+        Damit haengt der Zeiger des Bootloaders nicht an der Host-Rechnung:
+        er wird vor jedem Blockbuendel neu gesetzt.
+        """
+        self.seq = 1
+        return self.cmd_sequencer_start() and self.cmd_set_address(addr)
+
+    def drain_errors(self, settle_ms: int = 40) -> List[int]:
+        """Anstehende Fehlerrahmen (``7f 36 xx``) einsammeln.
+
+        Der Bootloader quittiert erfolgreiche 0x36-Bloecke nicht einzeln,
+        meldet Fehler aber sofort. ``settle_ms`` ist die Wartezeit, in der
+        spaete Antworten noch eingesammelt werden.
+        """
+        errs: List[int] = []
+        end = time.time() + settle_ms / 1000.0
+        while True:
+            left = int((end - time.time()) * 1000)
+            if left < 0:
+                break
+            r = self.tp.recv(min(100, max(0, left)))
+            if not r:
+                if time.time() >= end:
+                    break
+                continue
+            pl = ack_payload(r)
+            if pl is None:
+                continue
+            if pl[0] == 0x7F:
+                code = pl[2] if len(pl) > 2 else -2
+                errs.append(code)
+                if self.verbose:
+                    print(f"  <- [FEHLER 0x{code:02x}] {r[:14].hex(' ')}")
+            elif self.verbose:
+                print(f"  <- [ACK] {r[:14].hex(' ')}")
+        return errs
 
     def cmd_write_block(self, data: bytes, tries: int = 3) -> int:
         """0x36: bis zu 56 Datenbytes schreiben, Schreibzeiger laeuft weiter.
@@ -1171,6 +1637,15 @@ class Protocol:
         """
         if len(data) > 56:
             raise ValueError("max 56 Bytes pro 0x36-Block")
+        if len(data) % 2:
+            # Die Blob-Programm-Routine rechnet die Laenge in HALBWOERTER um
+            # (0x0800526E: ``lsrs r0,#1``) und vergleicht anschliessend genau
+            # diese Anzahl. Ein ungerades Byte am Ende wird also stillschweigend
+            # NICHT geschrieben -- und die Verifikation faellt nicht auf, weil
+            # sie dasselbe (verkuerzte) Fenster prueft.
+            raise ValueError(f"0x36-Blocklaenge muss gerade sein, ist "
+                             f"{len(data)} -- sonst wird das letzte Byte "
+                             f"stillschweigend nicht programmiert")
         payload = bytes([0x36, self.seq]) + data
         if not self.block_ack:
             # Streaming: keine Einzelquittung. Anfallende Antworten nur
@@ -1204,6 +1679,34 @@ class Protocol:
             last_err = -3
         return last_err
 
+    def cmd_write_stream(self, data: bytes) -> None:
+        """Datenblock in der **Stromphase** -- ohne Kommando-/Sequenzbyte.
+
+        Im Image (0x0800168A) steht: nach dem *ersten* erfolgreichen
+        ``0x36``-Kommando setzt der Bootloader ``[0x2000001C] = 1``. Der
+        Empfangspfad (0x08000B34) schickt jede weitere Nutzlast dann NICHT
+        mehr an den Kommando-Dispatcher, sondern an 0x0800168A, und der
+        programmiert sie **wortwoertlich** (Nutzlaenge = Anzahl Bytes) ab dem
+        Schreibzeiger.
+
+        Zurueck in den Kommandomodus kommt er nur, wenn der Schreibzeiger
+        genau 0x08040000 erreicht (Antwort ``0x76``) oder ein
+        Programmierfehler den Strom beendet (Antwort ``0x72``, danach ist
+        ``[0x2000001C]`` wieder 0).
+
+        Deshalb: Erfolgreiche Stromrahmen werden **nicht** quittiert --
+        Fehler aber sofort gemeldet.
+        """
+        if not 1 <= len(data) <= 58:
+            raise ValueError("1..58 Bytes je Stromrahmen")
+        if len(data) % 2:
+            # Siehe cmd_write_block: die Blob-Routine programmiert len/2
+            # Halbwoerter, ein ungerades Byte bleibt unbemerkt liegen.
+            raise ValueError(f"Stromrahmen-Laenge muss gerade sein, ist "
+                             f"{len(data)}")
+        self.send_frame(bytes(data))
+        self.addr += len(data)
+
     def cmd_finish(self) -> None:
         """0x3E = Abschluss (Payload-Laenge 2, Arg 0x00 oder 0x80).
 
@@ -1214,8 +1717,321 @@ class Protocol:
         self.send_frame(bytes([0x3E, 0x80]))
 
     # -- Gesamt-Upload -----------------------------------------------------
+    def _verify_and_finish(self) -> None:
+        """Applikations-CRC pruefen und bei Erfolg den Reset ausloesen."""
+        crc_res = self.cmd_app_crc()
+        if crc_res == CRC_OK:
+            print("[upload] App-CRC stimmt (Status 0) -- Bereich "
+                  "vollstaendig und konsistent.")
+        elif crc_res is None:
+            print("[upload] App-CRC nicht abfragbar -- fahre trotzdem fort.")
+        else:
+            print(f"[upload] WARNUNG: App-CRC stimmt nicht (Status {crc_res}) "
+                  "-- KEIN Reset ausgeloest.\n"
+                  "         Es fehlen Bloecke. NICHT einfach nochmal ohne "
+                  "Loeschen schreiben (das\n"
+                  "         wuerde auf belegten Flash programmieren), sondern "
+                  "erneut flashen -- das\n"
+                  "         Tool loescht dann vorher.")
+            raise IOError("CRC-Pruefung nach dem Schreiben fehlgeschlagen")
+        self.cmd_finish()
+        print("[upload] fertig, Reset ausgeloest.")
+
+    def _stream_frame(self, blk: bytes, first: bool) -> None:
+        """Einen Stromrahmen senden -- bei Schreibfehler Handle erneuern.
+
+        Der Schreibfehler ist meist ein toter Handle (hidraw), nicht ein
+        fehlender Rahmen: das Geraet haengt weiter am Bus. Weil nicht sicher
+        ist, ob der Rahmen angekommen ist, wird er nach dem Neuaufbau
+        **wiederholt** (die Firmware verwirft unvollstaendige Reports).
+        """
+        for attempt in (1, 2):
+            try:
+                if first:
+                    # Nur der erste Rahmen traegt Kommando + Sequenz (== 1
+                    # nach 0x37). Genau dieser Aufruf setzt [0x2000001C] = 1.
+                    self.seq = 1
+                    rc = self.cmd_write_block(blk)
+                    if rc:
+                        raise IOError(
+                            f"erster 0x36-Rahmen abgelehnt (0x{rc:02x})")
+                else:
+                    self.cmd_write_stream(blk)
+                return
+            except Exception as exc:               # noqa: BLE001
+                if attempt == 2 or not _is_transport_error(exc):
+                    raise
+                print("[stream] Schreibfehler -- Handle neu oeffnen und "
+                      "Rahmen wiederholen.", flush=True)
+                if not self.tp.reopen(10.0):
+                    raise IOError("Geraet kommt nicht zurueck") from exc
+
+    def upload_stream(self, img: Image, region: str = "app", chunk: int = 56,
+                      do_erase: bool = True, poll_ms: float = 3.0,
+                      end_wait_ms: float = 8000.0, pace_ms: float = 4.0,
+                      batch_frames: int = 64,
+                      clear_ms: float = 2.0) -> None:
+        """Image im **Datenstrom** schreiben -- das vom Bootloader erwartete
+        Verfahren.
+
+        Der Bootloader quittiert nur den **ersten** Rahmen eines Stromes
+        (``0x36`` mit Sequenzbyte); alles danach muss als reiner Datenrahmen
+        kommen. Genau daran ist das blockweise Senden gescheitert: ab Block 2
+        wurde jeder Kommandorahmen ``36 <seq> <56>`` als *Nutzlast* gewertet
+        und mit 58 statt 56 Byte ab dem Zeiger programmiert. Nach einem
+        ``0x37``/``0x34`` (Wiederaufsetzen) lag der Zeiger dann hinter dem
+        tatsaechlichen Stand -- also auf schon beschriebenem Flash: PGERR,
+        Pruefsummenfehler in der Routine, Antwort ``0x72`` und Verriegelung.
+
+        Endmarke: erreicht der Zeiger exakt 0x08040000 (Ende des App-Bereichs),
+        antwortet der Bootloader ``76 <seq>`` und ist wieder im
+        Kommandomodus. Das ist gleichzeitig der Beweis, dass der Zeiger exakt
+        mitgerechnet hat.
+        """
+        if region == "app":
+            start, stop = APP_BASE, APP_CRC_ADDR + 4
+        elif region == "all":
+            # Das Flash-Interface des Blobs prueft addr >= 0x08007800
+            # (0x080019A6) -- der Bootloader-Bereich ist damit grundsaetzlich
+            # nicht ueber 0x36 beschreibbar.
+            raise ValueError(
+                "region 'all' ist nicht schreibbar: der Bootloader lehnt "
+                "Adressen < 0x08007800 ab (Schutz des eigenen Bereichs). "
+                "Nur 'app' flashen.")
+        else:
+            raise ValueError("region muss 'app' oder 'all' sein")
+        if start < 0x08007800:
+            raise ValueError(
+                f"Startadresse 0x{start:08x} liegt unterhalb von 0x08007800 "
+                "-- dort lehnt der Bootloader das Programmieren ab.")
+        blob = bytearray(img.slice(start, stop - start))
+        rest = len(blob) % chunk
+        if rest:
+            # Der Strom endet erst bei 0x08040000; 0xFF programmieren ist auf
+            # geloeschtem Flash erlaubt (kein 0 -> 1), kostet nur Zeit.
+            blob += b"\xff" * (chunk - rest)
+        total = len(blob)
+        nblk = total // chunk
+        print(f"[stream] {region}: 0x{start:08x}..0x{stop - 1:08x} "
+              f"({total} Bytes) = 1+{nblk - 1} Rahmen a {chunk} Byte")
+        if self.wire == "app":
+            if not self.start_session():
+                raise IOError("Sitzung liess sich nicht starten (0x10).")
+        if not self.cmd_flash_unlock() and self.wire == "app":
+            raise IOError("Flash liess sich nicht entsperren (0x10203).")
+        if do_erase:
+            self._prepare_flash_erase(start, stop)
+        if not self.resync(start):
+            raise IOError("Resync 0x37/0x34 nicht quittiert")
+        t0 = time.time()
+        pos = 0
+        err: Optional[int] = None
+        end_seen = False
+        stalls0 = getattr(self.tp, "stall_reopens", 0)
+        losts0 = getattr(self.tp, "lost_reopens", 0)
+        stalls_total = 0
+        pace_s = max(0.0, pace_ms) / 1000.0
+        batch = max(1, batch_frames)
+        reads = 0
+        while pos < total:
+            blk = bytes(blob[pos:pos + chunk])
+            self._stream_frame(blk, first=(pos == 0))
+            pos += len(blk)
+            # Nur selten lesen: im Strom kommt (ausser Fehlern und der
+            # Endquittung) nichts zurueck, und hidapi meldet beim Pollen auf
+            # einem gerade beschaeftigten Geraet sporadisch
+            # ``HIDException: Success`` (hidraw-Poll ohne POLLIN/POLLERR).
+            # Das darf den Strom nicht abbrechen -- deshalb Schuebe senden und
+            # nur am Schubende kurz nachsehen.
+            if pos % (batch * chunk) and pos < total:
+                if pace_s:
+                    time.sleep(pace_s)
+            else:
+                reads += 1
+                stalls = getattr(self.tp, "stall_reopens", 0) - stalls0
+                losts = getattr(self.tp, "lost_reopens", 0) - losts0
+                if losts:
+                    # Knoten war wirklich weg (Neu-Anmeldung). Der
+                    # Schreibzeiger des Geraets ist damit unbekannt --
+                    # weiterzuschreiben wuerde Flash beschreiben, dessen
+                    # Adresse nicht mehr sicher ist. Deshalb: abbrechen.
+                    raise IOError(
+                        f"USB-Knoten ist bei 0x{start + pos:08x} "
+                        f"verschwunden und neu angemeldet "
+                        f"({pos}/{total} Bytes).\n"
+                        "        Der Schreibzeiger des Geraets ist jetzt "
+                        "unbekannt. Kein Reset ausgeloest --\n"
+                        "        einfach erneut flashen (das Tool loescht "
+                        "vorher).")
+                if stalls:
+                    stalls_total += stalls
+                    stalls0 = getattr(self.tp, "stall_reopens", 0)
+                    print(f"[stream] USB-Handle bei "
+                          f"0x{start + pos:08x} neu geoeffnet "
+                          f"(Stall, {stalls_total}. Mal) -- Strom laeuft "
+                          f"weiter.", flush=True)
+                    if stalls_total > 40:
+                        raise IOError(
+                            "mehr als 40x USB-Handle neu geoeffnet -- das "
+                            "Geraet ist nicht stabil.\n"
+                            "        Bitte Kabel/Port pruefen; kein Reset "
+                            "ausgeloest.")
+                r = self.tp.poll(clear_ms)
+                pl = ack_payload(r) if r else None
+                if pl is not None:
+                    if pl[0] == 0x7F:
+                        err = pl[2] if len(pl) > 2 else -2
+                        break
+                    if pl[0] == 0x76:
+                        # Zeiger hat 0x08040000 erreicht -- nur am Ende.
+                        if pos < total:
+                            print(f"[stream] Hinweis: Geraet meldet "
+                                  f"bereits bei 0x{start + pos:08x} "
+                                  f"'fertig' ({pos}/{total} Bytes).")
+                        end_seen = True
+                        break
+                if pace_s:
+                    time.sleep(pace_s)
+            if pos % (chunk * 512) == 0:
+                dt = time.time() - t0
+                rate = pos / dt if dt > 0 else 0
+                print(f"[stream] {pos}/{total}  {100 * pos // total}%  "
+                      f"({rate / 1024:.1f} KiB/s)", flush=True)
+        if err is not None:
+            if err in (0x11, 0x12, 0x13, 0x24, 0x73):
+                raise IOError(
+                    f"Fehler 0x{err:02x} im Datenstrom bei "
+                    f"0x{start + pos - chunk:08x}: das Geraet hat einen "
+                    f"Datenrahmen als\n"
+                    "        Kommando gelesen -- der Datenstrom ist also "
+                    "beendet (Flag zurueckgesetzt).\n"
+                    "        Typische Ursache: Zwischenzeitliche "
+                    "USB-Neuanmeldung oder ein Rahmen ging\n"
+                    "        verloren. Kein Reset ausgeloest -- einfach "
+                    "erneut flashen.")
+            raise IOError(
+                f"Programmierfehler 0x{err:02x} im Datenstrom bei "
+                f"0x{start + pos - chunk:08x}.\n"
+                "        Der Strom ist damit beendet (Flag zurueckgesetzt), "
+                "weitere Rahmen\n"
+                "        wuerden als Kommandos gelesen. Nicht wiederholen -- "
+                "das Geraet erneut\n"
+                "        flashen (das Tool loescht vorher).")
+        dt = time.time() - t0
+        print(f"[stream] {pos}/{total} Bytes geschrieben in {dt:.1f} s "
+              f"({pos / dt / 1024:.1f} KiB/s)")
+        # Endquittung: nur wenn der Zeiger exakt 0x08040000 erreicht hat.
+        got76 = None
+        tries = 0
+        while not end_seen and tries < 40:
+            tries += 1
+            r = self.tp.recv(200)
+            if not r:
+                continue
+            pl = ack_payload(r)
+            if pl is None:
+                continue
+            if pl[0] == 0x76:
+                got76 = pl
+                break
+            if pl[0] == 0x7F:
+                raise IOError(f"Fehlerrahmen nach dem Strom: "
+                              f"0x{(pl[2] if len(pl) > 2 else 0):02x}")
+        if got76 is None and end_seen:
+            got76 = bytes([0x76, 0])
+        if got76 is None:
+            print("[stream] WARNUNG: keine 0x76-Endquittung -- der Zeiger hat "
+                  "0x" f"{stop:08x} nicht exakt erreicht.")
+        else:
+            print(f"[stream] Endquittung 0x76 -- Schreibzeiger steht exakt "
+                  f"auf 0x{stop:08x}.")
+        self._verify_and_finish()
+
+    def _prepare_flash_erase(self, start: int, stop: int) -> None:
+        """Bereich seitenweise loeschen und danach die Sitzung neu aufbauen.
+
+        Die Flash-Befehle schalten den Systemtakt um (Unlock-Routine des
+        Blobs), der USB-Takt faellt dabei kurz weg -- kein Abstecken, aber
+        der alte Handle ist unbrauchbar.
+        """
+        print(f"[upload] loesche 0x{start:08x}..0x{stop - 1:08x} "
+              f"({stop - start} Bytes) in Bloecken ...", flush=True)
+        a = self.erase_range(start, stop - start,
+                             chunk=self.erase_chunk,
+                             pause_ms=self.erase_pause_ms)
+        if not a and self.wire == "app":
+            raise IOError(
+                "Loeschen fehlgeschlagen (Status 1) -- der Flash-Controller "
+                "ist gesperrt\n"
+                "        oder hat ein Fehlerbit. Es wurde NICHT geschrieben; "
+                "das Geraet bleibt\n"
+                "        im Bootloader. Abhilfe: Stromversorgung trennen "
+                "(Akku/Display abziehen,\n"
+                "        kurz warten) und erneut flashen.")
+        if self.wire == "app":
+            print("[upload] Sitzung neu aufbauen (Stall nach dem Flash-Befehl) "
+                  "...", flush=True)
+            time.sleep(0.5)
+            if not self.open(30.0) or not self.start_session():
+                raise IOError("Geraet antwortet nach dem Loeschen nicht mehr.")
+
     def upload(self, img: Image, region: str = "app", chunk: int = 56,
-               do_erase: bool = True) -> None:
+               do_erase: bool = True, burst_blocks: int = 8,
+               retries: int = 6, pause_ms: float = 150,
+               settle_ms: float = 120, pace_ms: float = 50,
+               stream: bool = False, batch_frames: int = 64,
+               stream_pace_ms: float = 4.0) -> None:
+        """Image schreiben -- blockweise, fehlerfest und ohne Doppelbeschreiben.
+
+        Mit ``stream=True`` wird stattdessen ``upload_stream`` benutzt: das ist
+        das Verfahren, das der Bootloader tatsaechlich erwartet (ein
+        Kommandorahmen, danach reine Datenrahmen, Ende bei 0x08040000). Der
+        blockweise Weg hier ist nur noch fuer Vergleichsmessungen da -- er
+        scheitert am Geraet, weil der Bootloader nach dem ersten 0x36 auf den
+        Datenstrom umschaltet (siehe ``upload_stream``).
+
+        Warum nicht einfach durchstreamen:
+
+        * Der Bootloader quittiert erfolgreiche 0x36-Bloecke **nicht**
+          einzeln, Fehler aber sofort (``7f 36 73`` Sequenz, ``7f 36 72``
+          Programmieren). Ein blindes Durchsenden merkt einen Fehler erst am
+          Ende -- dann fehlen Bloecke und die Applikations-CRC passt nicht.
+        * Nach dem Loeschen (und gelegentlich mitten im Schreiben) meldet sich
+          das Geraet am USB neu an; der alte Handle ist tot.
+
+        **Wichtig**: der Transportfehler ist meist *kein* Abstecken. Fuer
+        Flash-Befehle schaltet die Firmware den Systemtakt auf HSI und PLL/HSE
+        ab (Unlock-Routine des Blobs); der USB-Takt kommt vom PLL, also bleibt
+        das Geraet kurz stumm -- der Kernel meldet nichts (``dmesg`` leer).
+        Deshalb wird der Knoten nur neu geoeffnet und danach weitergearbeitet,
+        und zwischen den Kommandos bleibt eine Pause (``--pace-ms``,
+        ``--settle-ms``).
+
+        **Niemals einen Block zweimal schreiben**: der STM setzt beim
+        Programmieren auf nicht-geloeschte Halbwoerter ein Fehlerbit im
+        FLASH_SR, das die Eintrittspruefung des Flash-Blobs (``0x080051E0``,
+        ``0x0800527A``: SR bit 4/2) dauerhaft fehlschlagen laesst -- danach
+        meldet *jede* Loeschung Status 1 und *jeder* Block 0x72, auch auf
+        leerem Bereich. Im Emulator nachgestellt mit ``tools/emu.py blsticky``;
+        Software entfernt das Bit nicht (die W1C-Schreiboperation liegt hinter
+        der Pruefung) -- es hilft nur ein Power-Cycle. Deshalb:
+
+        Ablauf je Blockbuendel (``burst_blocks`` * 56 Byte):
+
+        1. ``0x37`` + ``0x34`` -- Sequencer und Adresse absolut setzen,
+        2. ab dem Wiederaufsetzpunkt senden,
+        3. Fehlerrahmen einsammeln (``settle_ms``),
+        4. ``0x72`` (Programmierfehler, Flash-Fehlerbit) -> **sofortiger
+           Abbruch** mit Hinweis auf Power-Cycle,
+        5. ``0x24`` (Datenmodus) -> Sitzung neu aufbauen und weiter,
+        6. ``0x73`` (Sequenz) -> der erste abgelehnte Block und alles danach
+           wurden **nicht** geschrieben: genau dort wieder aufsetzen
+           (davor liegende Bloecke werden nie wiederholt),
+        7. bei USB-Abriss: neu verbinden, Sitzung neu aufbauen, weiter.
+
+        Am Ende entscheidet die Applikations-CRC (0x31/0x10202): erst bei
+        Status 0 wird der Reset (0x3E) ausgeloest.
+        """
         if region == "app":
             start, stop = APP_BASE, APP_CRC_ADDR + 4
         elif region == "all":
@@ -1223,56 +2039,234 @@ class Protocol:
         else:
             raise ValueError("region muss 'app' oder 'all' sein")
         blob = img.slice(start, stop - start)
-        print(f"[upload] {region}: 0x{start:08x}..0x{stop - 1:08x} ({len(blob)} Bytes)")
-        if self.wire == "app":
-            self.cmd_sync()
-        self.cmd_enter_program()
+        print(f"[upload] {region}: 0x{start:08x}..0x{stop - 1:08x} "
+              f"({len(blob)} Bytes), {burst_blocks} Bloecke je Buendel")
+        if stream:
+            # Der Bootloader schaltet nach dem ersten 0x36 auf einen reinen
+            # Datenstrom um -- blockweises Senden ist damit unmoeglich.
+            self.upload_stream(img, region=region, chunk=chunk,
+                               do_erase=do_erase,
+                               pace_ms=stream_pace_ms,
+                               batch_frames=batch_frames)
+            return
+        if self.wire == "app" and not self.start_session():
+            raise IOError("Sitzung liess sich nicht starten (0x10).")
+        if self.wire == "app" and not self.flash_canary():
+            raise IOError(
+                "Flash-Sonde fehlgeschlagen: die Geraeterekord-Seite liess "
+                "sich nicht\n"
+                "        schreiben bzw. nicht zuruecklesen. Das heisst, dass das "
+                "Flash-Interface\n"
+                "        gesperrt ist (z. B. nach einem Takt-Umschalt-Stall) -- "
+                "der Erase-Befehl\n"
+                "        meldet dann trotzdem Erfolg! Es wurde NICHTS im "
+                "Applikationsbereich\n"
+                "        geschrieben. Abhilfe: Stromversorgung trennen "
+                "(Akku/Display abziehen,\n"
+                "        kurz warten) und erneut flashen.")
+
         if do_erase:
             # f_801998 ist reines Programmieren -- ohne vorheriges Loeschen
             # antwortet 0x36 mit Fehler 0x72.
-            a = self.cmd_erase(start, stop - start)
-            if a is None and self.wire == "app":
-                raise IOError("Loeschen fehlgeschlagen -- Upload abgebrochen, "
-                              "die Applikation ist noch unveraendert.")
-        self.cmd_sequencer_start()
-        self.cmd_set_address(start)
-        sent = 0
-        failed = []
-        for i in range(0, len(blob), chunk):
-            blk = blob[i:i + chunk]
-            rc = self.cmd_write_block(blk)
-            if rc:
-                failed.append((start + i, rc))
-            sent += len(blk)
-            if sent % (chunk * 8) == 0:
-                pct = 100 * sent // len(blob)
-                print(f"         {sent}/{len(blob)}  {pct}%"
-                      f"{f'  ({len(failed)} Fehler)' if failed else ''}",
+            print(f"[upload] loesche 0x{start:08x}..0x{stop - 1:08x} "
+                  f"({stop - start} Bytes) in Bloecken ...", flush=True)
+            a = self.erase_range(start, stop - start,
+                                 chunk=self.erase_chunk,
+                                 pause_ms=self.erase_pause_ms)
+            if not a and self.wire == "app":
+                raise IOError(
+                    "Loeschen fehlgeschlagen (Status 1) -- der Flash-Controller "
+                    "ist gesperrt\n"
+                    "        oder hat ein Fehlerbit. Es wurde NICHT geschrieben; "
+                    "das Geraet bleibt\n"
+                    "        im Bootloader. Abhilfe: Stromversorgung trennen "
+                    "(Akku/Display abziehen,\n"
+                    "        kurz warten) und erneut flashen.")
+            if self.wire == "app":
+                # Nach dem Loeschen kurz beruhigen und Sitzung neu aufbauen:
+                # die Flash-Befehle schalten den Systemtakt um, der USB-Takt
+                # (PLL) faellt dabei kurz weg (Stall, kein Abstecken).
+                print("[upload] Sitzung neu aufbauen (Stall nach dem "
+                      "Flash-Befehl) ...", flush=True)
+                time.sleep(0.5)
+                if not self.open(30.0) or not self.start_session():
+                    raise IOError("Geraet antwortet nach dem Loeschen nicht "
+                                  "mehr.")
+                if not self.flash_canary():
+                    raise IOError(
+                        "Nach dem Loeschen nimmt das Flash-Interface keine "
+                        "Schreibzugriffe\n"
+                        "        mehr an (Sonde ueber die Datensatzseite "
+                        "fehlgeschlagen). Es wurde\n"
+                        "        NICHTS im Applikationsbereich geschrieben. "
+                        "Power-Cycle noetig.")
+
+        burst = max(chunk, burst_blocks * chunk)
+        nburst = (len(blob) + burst - 1) // burst
+        retried = 0
+        skipped = 0
+        for b in range(nburst):
+            off = b * burst
+            piece = blob[off:off + burst]
+            resume = 0            # Bytes des Buendels, die schon geschrieben sind
+            done = False
+            for attempt in range(1, retries + 1):
+                try:
+                    if self.wire == "app" and \
+                            not self.resync(start + off + resume):
+                        raise IOError("Resync 0x37/0x34 nicht quittiert")
+                    nblk = 0
+                    errs: List[int] = []
+                    need_resync = False
+                    for i in range(resume, len(piece), chunk):
+                        blk = piece[i:i + chunk]
+                        if all(b == 0xFF for b in blk):
+                            # Nicht schreiben: 0xFF laesst sich auf belegtem
+                            # Flash nicht programmieren (0 -> 1 unmoeglich) und
+                            # setzt PGERR. Steht dort wirklich Dateninhalt,
+                            # bleibt er so erhalten -- die CRC-Endkontrolle
+                            # meldet das anschliessend, ohne den Latch.
+                            skipped += 1
+                            need_resync = True
+                            continue
+                        if need_resync:
+                            if self.wire == "app" and \
+                                    not self.resync(start + off + i):
+                                raise IOError("Resync nach uebersprungenem "
+                                              "Block nicht quittiert")
+                            need_resync = False
+                        rc = self.cmd_write_block(blk)
+                        nblk += 1
+                        if rc:
+                            errs.append(rc)
+                    errs += self.drain_errors(settle_ms)
+                except Exception as exc:            # noqa: BLE001
+                    if not _is_transport_error(exc):
+                        raise
+                    print(f"  [retry] Buendel 0x{start+off:08x}: "
+                          f"{type(exc).__name__}: {exc} -- Transport neu "
+                          f"aufbauen (Versuch {attempt}/{retries})", flush=True)
+                    try:
+                        self.close()
+                    except Exception:               # noqa: BLE001
+                        pass
+                    if not self.open(30.0) or not self.start_session():
+                        raise IOError("Geraet kommt nicht zurueck") from exc
+                    if self.wire == "app" and not self.flash_canary():
+                        raise IOError(
+                            "Nach dem Transportfehler nimmt das Flash-Interface "
+                            "keine\n"
+                            "        Schreibzugriffe mehr an (Sonde ueber die "
+                            "Datensatzseite fehlgeschlagen).\n"
+                            "        Es wurde nichts weiter geschrieben -- "
+                            "Power-Cycle noetig, danach\n"
+                            "        erneut flashen.") from exc
+                    continue
+                if not errs:
+                    done = True
+                    break
+                retried += len(errs)
+                codes = " ".join(f"0x{c:02x}" for c in errs[:6])
+                if 0x72 in errs:
+                    # FATAL: der Flash-Controller nimmt jetzt nichts mehr an
+                    # (Fehlerbit im FLASH_SR). Weiterschreiben ist sinnlos und
+                    # wuerde nur weiter schaden -- sofort abbrechen.
+                    raise IOError(
+                        f"Programmierfehler 0x72 bei "
+                        f"0x{start + off + resume:08x}.\n"
+                        "        Ursache: es wurde auf NICHT geloeschten Flash "
+                        "geschrieben (Loeschen\n"
+                        "        unvollstaendig oder Block doppelt). Der "
+                        "Flash-Controller setzt dabei\n"
+                        "        ein Fehlerbit und nimmt danach WEDER Loeschen "
+                        "noch Programmieren an\n"
+                        "        (Erase meldet Status 1), auch auf leerem "
+                        "Bereich. Im Emulator\n"
+                        "        nachgestellt mit tools/emu.py blsticky; "
+                        "Software loescht das Bit nicht.\n"
+                        "        Abhilfe: Stromversorgung trennen (Akku/Display "
+                        "abziehen, kurz warten),\n"
+                        "        danach erneut flashen.")
+                if 0x24 in errs:
+                    print("  [retry] Datenmodus fehlt (0x24) -- Sitzung neu "
+                          "aufbauen", flush=True)
+                    if not self.start_session():
+                        raise IOError("Sitzung liess sich nicht neu aufbauen")
+                    continue
+                # 0x73 = Sequenzfehler: der erste abgelehnte Block und alles
+                # danach wurden NICHT geschrieben, die Bloecke davor schon.
+                # Also genau ab dort wieder aufsetzen -- niemals Bloecke
+                # wiederholen, die schon geschrieben sind (das setzt PGERR!).
+                skip = max(0, nblk - len(errs))
+                print(f"  [retry] Buendel 0x{start+off:08x}: {len(errs)} "
+                      f"Fehlerrahmen ({codes}), {skip} Block/Bloecke davor ok "
+                      f"-- weiter ab 0x{start+off+resume+skip*chunk:08x} "
+                      f"(Versuch {attempt}/{retries})", flush=True)
+                resume = min(len(piece), resume + skip * chunk)
+                time.sleep(pause_ms / 1000.0)
+            if not done:
+                raise IOError(
+                    f"Blockbuendel 0x{start + off:08x} liess sich nach "
+                    f"{retries} Versuchen nicht schreiben.\n"
+                    "        Das Geraet bleibt im Bootloader und kann erneut "
+                    "geflasht werden.")
+            if pace_ms:
+                time.sleep(pace_ms / 1000.0)
+            if b % 16 == 15 or off + burst >= len(blob):
+                n = min(len(blob), off + len(piece))
+                print(f"         {n}/{len(blob)}  {100 * n // len(blob)}%"
+                      f"{f'  ({retried} Wiederholungen)' if retried else ''}"
+                      f"{f'  ({skipped} 0xFF-Bloecke uebersprungen)' if skipped else ''}",
                       flush=True)
-        if not failed and not self.block_ack:
-            # Der Bootloader antwortet einmal, wenn der Zeiger 0x08040000
-            # erreicht hat.
-            r = self.tp.recv(4000)
-            pl = ack_payload(r)
-            if pl and pl[0] == (0x36 | 0x40):
-                print("[upload] Abschlussquittung 0x76 erhalten.")
-            elif pl and pl[0] == 0x7F:
-                print(f"[upload] Geraet meldet Fehler 0x{pl[2]:02x}.")
-                failed.append((stop, pl[2] if len(pl) > 2 else -2))
-            else:
-                print("[upload] Keine Abschlussquittung erhalten.")
-        if failed:
-            print(f"[upload] ABBRUCH: {len(failed)} Block/Blöcke nicht "
-                  f"geschrieben, erster Fehler bei 0x{failed[0][0]:08x} "
-                  f"(rc={failed[0][1]}). KEIN Reset ausgeloest.")
-            raise IOError("Flash-Schreiben fehlgeschlagen")
+
+        # Endkontrolle VOR dem Reset: das ist der eigentliche Nachweis, dass
+        # Erase + Schreiben funktioniert haben (CRC-Wort steckt im Image).
+        if skipped:
+            print(f"[upload] {skipped} Block/Bloecke waren im Image nur 0xFF "
+                  f"und wurden NICHT geschrieben.")
+        crc_res = self.cmd_app_crc()
+        if crc_res == CRC_OK:
+            print("[upload] App-CRC stimmt (Status 0) -- Bereich "
+                  "vollstaendig und konsistent.")
+        elif crc_res is None:
+            print("[upload] App-CRC nicht abfragbar -- fahre trotzdem fort.")
+        else:
+            print(f"[upload] WARNUNG: App-CRC stimmt nicht (Status {crc_res}) "
+                  "-- KEIN Reset ausgeloest.\n"
+                  "         Es fehlen Bloecke. NICHT einfach nochmal ohne "
+                  "Loeschen schreiben (das\n"
+                  "         wuerde auf belegten Flash programmieren), sondern "
+                  "erneut flashen -- das\n"
+                  "         Tool loescht dann vorher.")
+            raise IOError("CRC-Pruefung nach dem Schreiben fehlgeschlagen")
         self.cmd_finish()
-        print("[upload] alle Bloecke quittiert, Reset ausgeloest.")
+        print("[upload] fertig, Reset ausgeloest.")
 
 
 # --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
+def _add_burst_options(sp) -> None:
+    """Gemeinsame Upload-Optionen: Blockbuendel + Wiederholungen."""
+    sp.add_argument("--resync", type=int, default=8, metavar="N",
+                    help="Bloecke je Buendel; vor jedem Buendel werden "
+                         "Sequencer (0x37) und Adresse (0x34) neu gesetzt "
+                         "(Standard %(default)s)")
+    sp.add_argument("--retries", type=int, default=6, metavar="N",
+                    help="Versuche je Buendel bei Fehlerrahmen (Standard "
+                         "%(default)s)")
+    sp.add_argument("--pause-ms", type=float, default=150.0, metavar="MS",
+                    help="Pause vor einem Wiederholungsversuch in ms "
+                         "(Standard %(default)g)")
+    sp.add_argument("--settle-ms", type=float, default=120.0, metavar="MS",
+                    help="Wartezeit je Buendel zum Einsammeln spaeter "
+                         "Fehlerrahmen in ms (Standard %(default)g; deckt auch "
+                         "den kurzen USB-Stall nach Flash-Befehlen ab)")
+    sp.add_argument("--pace-ms", type=float, default=50.0, metavar="MS",
+                    help="Pause nach jedem Buendel in ms (Standard "
+                         "%(default)g; entlastet den Flash-Controller)")
+
+
 def _patch_spec(spec: str) -> Tuple[int, bytes]:
     """Formate:  '0x08001234=DEADBEEF'  oder  '0x08001234=90,90' """
     addr_s, val_s = spec.split("=", 1)
@@ -1301,6 +2295,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     sp.add_argument("--region", choices=["app", "all"], default="app")
     sp.add_argument("--wait", type=float, default=120.0,
                     help="Sekunden auf das Geraet warten (Standard 120)")
+    sp.add_argument("--erase-timeout", type=float, default=ERASE_TIMEOUT_MS / 1000.0,
+                    metavar="S",
+                    help="Sekunden auf die Loeschquittung warten (Standard "
+                         "%(default)g); 224 KiB Loeschen dauert Sekunden")
+    sp.add_argument("--erase-chunk", type=lambda x: int(x, 0), default=0x800,
+                    metavar="B",
+                    help="Loeschen in Bloecken von B Bytes (Standard "
+                         "%(default)#x = 1 Seite); nach jedem Block wird "
+                         "der Status geprueft")
+    sp.add_argument("--erase-pause-ms", type=float, default=60.0, metavar="MS",
+                    help="Pause zwischen zwei Loeschbefehlen in ms (Standard "
+                         "%(default)g; eine Seite braucht bis zu ~25 ms)")
+    _add_burst_options(sp)
     sp.add_argument("--no-reset", action="store_true",
                     help="nicht selbst in den Bootloader springen")
     sp.add_argument("-q", "--quiet", action="store_true")
@@ -1348,6 +2355,20 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="Flash-Bereich im Bootloader loeschen (0x31)")
     sp.add_argument("--addr", type=lambda x: int(x, 0), required=True)
     sp.add_argument("--len", type=lambda x: int(x, 0), required=True)
+    sp.add_argument("--wire", choices=["app", "raw", "hdr"], default="app")
+
+    sp = sub.add_parser("wptest",
+                        help="WRP testen: dieselbe App-Seite zweimal loeschen")
+    sp.add_argument("--addr", type=lambda x: int(x, 0), default=0x08030000,
+                    help="Seite in der Applikationsregion (Standard "
+                         "%(default)#010x)")
+    sp.add_argument("--wire", choices=["app", "raw", "hdr"], default="app")
+
+    sp = sub.add_parser("writetest",
+                        help="Schreibpfad 0x34/0x36 auf der Datensatzseite "
+                             "pruefen")
+    sp.add_argument("--readback", action="store_true",
+                    help="nur die Datensatzseite lesen (nach Power-Cycle)")
     sp.add_argument("--wire", choices=["app", "raw", "hdr"], default="app")
 
     sp = sub.add_parser("appframe",
@@ -1404,11 +2425,35 @@ def main(argv: Optional[List[str]] = None) -> int:
                          "raw = [len][payload], hdr = 02 21 <len> <payload>")
     sp.add_argument("--dry-run", action="store_true",
                     help="nur anzeigen, nichts senden")
+    sp.add_argument("--stream", action="store_true",
+                    help="Datenstrom-Verfahren (vom Bootloader erwartet): ein "
+                         "Kommandorahmen 0x36, danach reine Datenrahmen bis "
+                         "0x08040000; Ende wird mit 0x76 quittiert")
+    sp.add_argument("--stream-pace-ms", type=float, default=4.0, metavar="MS",
+                    help="Pause je Datenrahmen (Standard %(default)g; der "
+                         "Flash-Controller braucht je Rahmen einige ms)")
+    sp.add_argument("--stream-batch", type=int, default=64, metavar="N",
+                    help="Rahmen je Schub; erst am Schubende wird gelesen "
+                         "(Standard %(default)s)")
+    sp.add_argument("--legacy-blocks", action="store_true",
+                    help="altes blockweises Verfahren (scheitert am Geraet)")
     sp.add_argument("-y", "--yes", action="store_true",
                     help="Sicherheitsabfrage ueberspringen")
     sp.add_argument("-q", "--quiet", action="store_true")
     sp.add_argument("--no-erase", action="store_true",
                     help="Bereich nicht vorher loeschen (nur wenn schon leer)")
+    sp.add_argument("--erase-timeout", type=float, default=ERASE_TIMEOUT_MS / 1000.0,
+                    metavar="S",
+                    help="Sekunden auf die Loeschquittung warten (Standard "
+                         "%(default)g)")
+    sp.add_argument("--erase-chunk", type=lambda x: int(x, 0), default=0x800,
+                    metavar="B",
+                    help="Loeschen in Bloecken von B Bytes (Standard "
+                         "%(default)#x = 1 Seite)")
+    sp.add_argument("--erase-pause-ms", type=float, default=60.0, metavar="MS",
+                    help="Pause zwischen zwei Loeschbefehlen in ms (Standard "
+                         "%(default)g)")
+    _add_burst_options(sp)
 
     sp = sub.add_parser("raw", help="rohen 64-Byte-Report senden (Protokoll testen)")
     sp.add_argument("hexbytes", help="z. B. '02 21 02 34 03'")
@@ -1474,8 +2519,15 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         tp = Transport(boot[0])
         try:
-            proto = Protocol(tp, verbose=not args.quiet, wire="app")
-            proto.upload(img, region=args.region)
+            proto = Protocol(tp, verbose=not args.quiet, wire="app",
+                             erase_timeout_ms=int(args.erase_timeout * 1000),
+                             erase_chunk=args.erase_chunk,
+                             erase_pause_ms=int(args.erase_pause_ms))
+            proto.upload(img, region=args.region,
+                         burst_blocks=args.resync, retries=args.retries,
+                         pause_ms=int(args.pause_ms),
+                         settle_ms=int(args.settle_ms),
+                         pace_ms=int(args.pace_ms))
         finally:
             tp.close()
 
@@ -1678,6 +2730,174 @@ def main(argv: Optional[List[str]] = None) -> int:
             tp.close()
         return 0
 
+    if args.cmd == "wptest":
+        if args.addr < APP_BASE:
+            print("Abbruch: Adresse liegt im Bootloader (< 0x08008000).")
+            return 2
+        hits = find_bootloader(verbose=False)
+        if not hits:
+            print("Kein Bootloader gefunden ('CEBS Bootloader Mode').")
+            return 3
+        tp = Transport(hits[0])
+        try:
+            proto = Protocol(tp, verbose=True, wire=args.wire)
+            proto.start_session()
+            # Vorher/nachher die Applikations-CRC abfragen: solange der Bereich
+            # mit seinem CRC-Wort uebereinstimmt (Status 0), zeigt ein Wechsel
+            # auf Status 1, dass die Loeschung tatsaechlich etwas veraendert hat
+            # (PM0075: WRPRTERR wird gesetzt, wenn eine geschuetzte Seite
+            # geloescht/programmiert werden soll -- der Wrapper prueft nur BSY
+            # und meldet deshalb trotzdem Erfolg).
+            res0 = proto.cmd_app_crc()
+            print(f"[wptest] App-CRC vor dem Loeschen : Status {res0} "
+                  f"(0 = Bereich ist selbstkonsistent)")
+            print(f"[wptest] Seite 0x{args.addr:08x} zweimal loeschen "
+                  f"(schreibt nichts):")
+            st = []
+            for n in (1, 2):
+                proto.cmd_erase(args.addr, 0x800, timeout_ms=20000)
+                st.append(proto.last_erase_status)
+                print(f"[wptest] Versuch {n}: Status = {st[-1]}")
+                time.sleep(0.2)
+            res1 = proto.cmd_app_crc()
+            print(f"[wptest] App-CRC nach dem Loeschen: Status {res1}")
+        finally:
+            tp.close()
+        print()
+        if res0 == 0 and res1 == 0:
+            print("[wptest] Die Applikations-CRC war vorher und ist nachher "
+                  "konsistent -> die\n"
+                  "         Loeschung hat den Bereich NICHT veraendert.")
+        elif res0 == 0 and res1 == 1:
+            print("[wptest] Die Applikations-CRC war konsistent und ist es "
+                  "nicht mehr -> die\n"
+                  "         Loeschung hat den Bereich sehr wohl veraendert.")
+        if st[0] == ERASE_OK and st[1] == ERASE_OK:
+            print("[wptest] Beide Loeschungen akzeptiert -> kein WRPRTERR "
+                  "gesetzt.\n"
+                  "         Die Seite ist also NICHT schreibgeschuetzt; ein "
+                  "wirkungsloses\n"
+                  "         Loeschen haette eine andere Ursache.")
+        elif st[0] == ERASE_OK and st[1] == 1:
+            print("[wptest] Erste Loeschung akzeptiert, zweite mit Status 1 "
+                  "abgelehnt ->\n"
+                  "         die Seite ist SCHREIBGESCHUETZT (WRP): das "
+                  "Loeschen setzt WRPRTERR,\n"
+                  "         ohne es zu melden (der Wrapper prueft nur BSY).\n"
+                  "         Damit kann der Bootloader den Applikationsbereich "
+                  "nicht aendern --\n"
+                  "         die Option Bytes muessen per SWD (ST-Link) "
+                  "geaendert werden.")
+        else:
+            print("[wptest] Erstes Loeschen schon mit Status 1 -> es ist "
+                  "bereits ein Fehlerbit\n"
+                  "         gesetzt (Latch aus einem frueheren Versuch). "
+                  "Power-Cycle, dann erneut.")
+        return 0
+
+    if args.cmd == "writetest":
+        # Probe auf der EINZIGEN lesbaren Flash-Seite (Geraeterekord
+        # 0x08007800). Sie klaert drei Fragen auf einmal:
+        #  1. wirkt das Loeschen?       -> gelesen == ff ff ff ff ff ff
+        #  2. wirkt 0x34/0x36 (2 Byte)? -> nach Power-Cycle steht dort A0 A1
+        #  3. wirkt der Stromrahmen?    -> die naechsten Bytes stehen ab
+        #     0x08007802 (wortwoertlich, ohne Kommando-/Sequenzbyte)
+        # Der erste Block muss **gerade** Laenge haben: die Blob-Routine
+        # rechnet in Halbwoertern, ein einzelnes Byte wird stillschweigend
+        # nicht programmiert (am Geraet am 2026-10-04 genau so beobachtet).
+        # Das Lesen geht nur, solange der Bootloader Kommandos annimmt; nach
+        # dem ersten 0x36 schaltet er auf den Datenstrom um (siehe
+        # ``upload_stream``). Deshalb: Ausgabe lesen, dann warten (der
+        # Bootloader setzt sich nach seinem Timeout selbst zurueck) oder
+        # Power-Cycle und ``writetest --readback``.
+        rec = 0x08007800
+        leer = b"\xff" * 6
+        hits = find_bootloader(verbose=False)
+        if not hits:
+            print("Kein Bootloader gefunden ('CEBS Bootloader Mode').")
+            return 3
+        tp = Transport(hits[0])
+        try:
+            proto = Protocol(tp, verbose=True, wire=args.wire)
+            if args.readback:
+                back = proto.cmd_read_record()
+                print(f"[writetest] Datensatzseite 0x{rec:08x}: "
+                      f"{back.hex(' ') if back else 'keine Antwort'}")
+                if back == leer:
+                    print("         -> geloescht/leer (0xFF = leer!). "
+                          "Ein vorher geschriebenes Muster ist nicht da.")
+                elif back:
+                    b = back
+                    notes = []
+                    if b[:2] == b"\xa0\xa1":
+                        notes.append("Byte 0..1 = Kommandorahmen 0x36 hat "
+                                     "geschrieben (A0 A1)")
+                    if b[2:6] == bytes([0xB1, 0xB2, 0xB3, 0xB4]):
+                        notes.append("Byte 2..5 = Stromrahmen hat "
+                                     "wortwoertlich geschrieben (B1..B4)")
+                    if b[2:4] == b"\x22\xf1":
+                        notes.append("Byte 2..3 = der Leseversuch '22 f1 5b' "
+                                     "wurde als Stromdatum geschrieben "
+                                     "(Kommandos wurden nicht mehr gelesen)")
+                    print("         -> " + ("; ".join(notes) if notes else
+                          "unbekanntes Muster (kein Testmuster vom "
+                          "letzten Lauf)"))
+                print("         Muster bei sauberem Lauf: 'a0 a1 b1 b2 b3 b4'")
+                return 0
+            if not proto.start_session():
+                print("[writetest] Sitzung (0x10) nicht gestartet.")
+                return 4
+            proto.cmd_flash_unlock()
+            print(f"[writetest] 1) Datensatzseite 0x{rec:08x} loeschen ...")
+            proto.cmd_erase(rec, 0x800, timeout_ms=20000)
+            got = proto.cmd_read_record()
+            if got == leer:
+                bew = "LEER -- Loeschen wirkt"
+            elif got is None:
+                bew = "keine Antwort (Geraet im Strommodus)"
+            else:
+                bew = "nicht leer"
+            print(f"[writetest] 2) gelesen: "
+                  f"{got.hex(' ') if got else 'keine Antwort'} -> {bew}")
+            print("[writetest] 3) 0x37 + 0x34 + Kommandorahmen '36 01 A0 A1' "
+                  "(2 Byte) ...")
+            if not proto.resync(rec):
+                print("[writetest]    Resync nicht quittiert.")
+            rc = proto.cmd_write_block(bytes([0xA0, 0xA1]))
+            errs = proto.drain_errors(300)
+            print(f"[writetest]    rc={rc} Fehler={[hex(e) for e in errs]}")
+            print("[writetest]    -> ab hier ist der Bootloader im "
+                  "Datenstrom: Kommandos werden nicht mehr gelesen.")
+            # WICHTIG: der Datenrahmen kommt VOR dem Leseversuch. Der
+            # Leseversuch (3 Byte) wird naemlich selbst als Stromdatum
+            # programmiert -- aber nur 3>>1 = 1 Halbwort, waehrend der Zeiger um
+            # die volle Laenge (+3, ungerade!) weiterlaeuft. Danach landet der
+            # naechste Rahmen auf einer ungeraden Adresse und wirkt nicht mehr
+            # (am Geraet am 2026-10-04 genau so beobachtet).
+            print("[writetest] 4) reiner Datenrahmen 'B1..B6' (6 Byte) ...")
+            proto.cmd_write_stream(
+                bytes([0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6]))
+            print("[writetest] 5) Leseversuch (wird im Strom als Daten "
+                  "geschluckt) ...")
+            got = proto.cmd_read_record()
+            if got is None:
+                print("[writetest]    keine Antwort -- wie erwartet, das "
+                      "Geraet ist im Strommodus.")
+            else:
+                print(f"[writetest]    {got.hex(' ')} (!) das Geraet nimmt "
+                      "noch Kommandos an")
+            print("[writetest] Jetzt warten -- der Bootloader setzt sich nach "
+                  "seinem Timeout selbst zurueck -- oder Strom trennen, "
+                  "danach 'writetest --readback'.")
+            print("[writetest] Erwartung: 'a0 a1 b1 b2 b3 b4' "
+                  "(Byte 0..1 Kommandorahmen, Byte 2..5 Stromrahmen).")
+            print("[writetest] Steht dort 'a0 a1 22 f1 …', stammt das vom "
+                  "alten Aufbau: dann wurde der Leseversuch '22 f1 5b' als "
+                  "Stromdatum geschrieben.")
+        finally:
+            tp.close()
+        return 0
+
     if args.cmd == "appframe":
         return probe_app_frame(wait_s=args.wait)
 
@@ -1715,10 +2935,16 @@ def main(argv: Optional[List[str]] = None) -> int:
                 print("Tipp: Reset der App (NVIC_SystemReset) bzw. SWD-Reset erzwingt ihn.")
                 return 3
             proto = Protocol(Transport(hits[0]), verbose=not args.quiet,
-                             wire=args.wire)
+                             wire=args.wire,
+                             erase_timeout_ms=int(args.erase_timeout * 1000),
+                             erase_chunk=args.erase_chunk,
+                             erase_pause_ms=int(args.erase_pause_ms))
         else:
             proto = Protocol(DryTransport(), verbose=not args.quiet,  # type: ignore
-                             wire=args.wire)
+                             wire=args.wire,
+                             erase_timeout_ms=int(args.erase_timeout * 1000),
+                             erase_chunk=args.erase_chunk,
+                             erase_pause_ms=int(args.erase_pause_ms))
 
         if not args.dry_run and not args.yes:
             print(f"ACHTUNG: schreibt 0x{args.region}-Region in den Flash. Fortsetzen? [j/N] ",
@@ -1726,7 +2952,14 @@ def main(argv: Optional[List[str]] = None) -> int:
             if input().strip().lower() not in ("j", "y", "ja", "yes"):
                 return 2
         try:
-            proto.upload(img, region=args.region, do_erase=not args.no_erase)
+            proto.upload(img, region=args.region, do_erase=not args.no_erase,
+                         burst_blocks=args.resync, retries=args.retries,
+                         pause_ms=int(args.pause_ms),
+                         settle_ms=int(args.settle_ms),
+                         pace_ms=int(args.pace_ms),
+                         stream=(not args.legacy_blocks),
+                         batch_frames=args.stream_batch,
+                         stream_pace_ms=args.stream_pace_ms)
         finally:
             if proto is not None and getattr(proto, "tp", None) is not None:
                 proto.tp.close()
