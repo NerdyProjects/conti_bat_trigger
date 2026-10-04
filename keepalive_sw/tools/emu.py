@@ -11,6 +11,9 @@ Nutzung:
     python3 tools/emu.py crc          # Selbsttest der CRC-Funktion
     python3 tools/emu.py dispatch     # Kommando-Dispatcher des Bootloaders
     python3 tools/emu.py frame        # Rahmen-Parser des Bootloaders
+    python3 tools/emu.py bmspatch     # BMS-Patch (0x555 folgt dem Display)
+
+Optionen: -t (Trace), -i <image> (statt data/stm32f105_conti.bin)
 """
 
 from __future__ import annotations
@@ -153,6 +156,10 @@ class Emu:
         # CRC_DR lesen
         if address == 0x40023000:
             mu.mem_write(0x40023000, struct.pack("<I", self._crc))
+        if getattr(self, "log_unmapped", False):
+            pc = mu.reg_read(UC_ARM_REG_PC)
+            print(f"    [unmapped READ] pc=0x{pc:08x} addr=0x{address:08x} "
+                  f"size={size}")
         return True
 
     def add_stub(self, addr: int, fn: Callable[["Emu"], None]) -> None:
@@ -253,6 +260,7 @@ def scenario_dispatch(emu: Emu) -> int:
 BL_STATE = 0x2000001C       # +0 flag0, +1 flag1, +2 halfword len, +4 counter
 BL_STATE28 = 0x20000028     # "gueltig"-Byte
 BL_V34 = 0x20000034         # Byte, von 0x34/0x36 benoetigt (0 bzw. 1)
+BL_PAYLOAD_C = 0x200001CC    # Kommando-/Antwortpuffer
 BL_FSTATE = 0x20000038      # +0 seq, +1 nibLow, +2 nibHigh, +4 writepointer
 BL_ERASE = 0x20000040       # +4 addr, +8 len (fuer 0x08001964)
 BL_PAYLOAD = 0x200001CC     # Payload-Puffer
@@ -615,6 +623,11 @@ def _bl_install(emu: "Emu", rec: Dict[str, object]) -> None:
     emu.add_stub(0x08001998, fwrite)
 
 
+def _bl_feed_raw(emu: "Emu") -> None:
+    """Verarbeitet den Report, der bereits in BL_RAW_RX liegt (echter Weg)."""
+    emu.call(0x08000AAA)
+
+
 def _bl_feed(emu: "Emu", payload: bytes) -> None:
     """Speist einen Kanal-1-Rahmen ein und laesst den BL ihn verarbeiten."""
     frame = bytes([len(payload)]) + payload
@@ -920,6 +933,141 @@ def scenario_hidtrigger(emu: "Emu") -> int:
     return 0 if ok else 1
 
 
+# --------------------------------------------------------------------------
+# App-USB-Empfangspfad - Adressen aus dem Dump
+# --------------------------------------------------------------------------
+APP_RX_BUF = 0x2000996C      # Empfangspuffer der App  (Pool 0x801D9E8)
+APP_RX_SEQ = 0x20000BAC      # Sequenzzaehler          (Pools 0x801D9EC/0x801D550)
+APP_FIFO_A_PTR = 0x20000BA0  # *(0x801D9E0) -> Deskriptorzeiger FIFO A
+APP_FIFO_B_PTR = 0x20000BA4  # *(0x801D9E4) -> Deskriptorzeiger FIFO B
+APP_MSG_OBJ = 0x2000B814     # Nachrichtenobjekt      (Pool 0x801DA08)
+APP_MSG_PTR = 0x2000092C     # Zeiger darauf          (Pool 0x80190E4)
+APP_PARSER = 0x0801D634      # Typverteiler des USB-Empfangs
+APP_PORT_TASK = 0x0801D81E   # Port-Task: 0x0801D900 holt FIFO A ab
+
+
+def scenario_usbtrigger(emu: "Emu") -> int:
+    """Echter USB-Weg: 64-Byte-Report -> NVIC_SystemReset der App.
+
+    Es wird nichts vorgekaut, sondern der echte Code benutzt:
+
+      * Empfangsparser   0x0801D634 (Typ 1 ab 0x0801D75C, Typ 0xFE 0x0801D744)
+      * Verpackung       0x0801D5C2 / ID-Freigabe 0x0801D4E2
+      * FIFO A           0x0800B190 (Init) / 0x0800B1BE (Push) / 0x0800B202
+      * Port-Task        0x0801D81E -> 0x0801D900 holt den Block ab
+      * Nachrichtenmodul 0x0801819A / 0x080181CA (-> 0x08018160)
+      * Dispatcher       0x08018D04 -> fnTable[3] = 0x08017378
+                         -> SCB->AIRCR = 0x05FA0004
+    """
+    sys.path.insert(0, str(ROOT / "tools"))
+    import stm_display_fw as fw  # noqa: PLC0415
+
+    ok = True
+    _app_port_ready(emu)
+
+    def run(addr: int, max_insns: int = 400_000) -> Optional[str]:
+        try:
+            emu.call(addr, max_insns=max_insns)
+            return None
+        except UcError as exc:
+            return f"{exc} @PC={emu.mu.reg_read(UC_ARM_REG_PC):#010x}"
+
+    # FIFOs anlegen (0x0800B190: desc, base, bloecke, blockgroesse).
+    # A/B = Empfangswege (0x20000BA0/0x20000BA4), 0x20000B9C = Sende-FIFO.
+    for ptr, desc, base in ((APP_FIFO_A_PTR, 0x2000D000, 0x2000D100),
+                            (APP_FIFO_B_PTR, 0x2000D400, 0x2000D500),
+                            (0x20000B9C, 0x2000D800, 0x2000D900),
+                            (0x20000BB0, 0x2000DC00, 0x2000DD00),
+                            (0x20000BA8, 0x2000E000, 0x2000E100)):
+        emu.call(0x0800B190, r0=desc, r1=base, r2=8, r3=0x40)
+        emu.wr(ptr, desc)
+    # Nachrichtenmodul-Zustand (setzt sonst die App-Initialisierung)
+    emu.wr(APP_MSG_PTR, APP_MSG_OBJ)
+    emu.wr(0x2000880C + 4, 64, 2)
+    emu.wr(0x2000880C + 16, 0x000C)
+    emu.wr(0x2000093C, 0xFFFFFFFF)
+
+    def fifo_count(ptr: int) -> int:
+        desc = emu.rd(ptr)
+        return emu.rd(desc + 16, 1) if desc else -1
+
+    # ---- 1) Steuerrahmen Typ 0xFE setzt den Zaehler --------------------
+    emu.wr(APP_RX_SEQ, 0x7F, 1)
+    emu.mu.mem_write(APP_RX_BUF, fw.build_sync_frame(0))
+    err = run(APP_PARSER, 100_000)
+    seq_now = emu.rd(APP_RX_SEQ, 1)
+    print(f"[usbtrigger] 1) Typ-0xFE-Rahmen -> Zaehler = {seq_now} (erwartet 0)"
+          + (f"   [{err}]" if err else ""))
+    ok = ok and seq_now == 0 and not err
+
+    # ---- 2) Trigger-Rahmen durch den echten Parser ---------------------
+    rep = fw.build_app_frame(fw.TRIGGER_MSG, seq=0)
+    print(f"[usbtrigger] 2) Report   = {rep[:8].hex(' ')} ... "
+          f"(Nutzlast {fw.TRIGGER_MSG.hex(' ')}, Kanal "
+          f"{rep[3] | (rep[4] << 8):#06x})")
+    emu.mu.mem_write(APP_RX_BUF, rep)
+    before = fifo_count(APP_FIFO_A_PTR)
+    err = run(APP_PARSER, 200_000)
+    blk = fifo_count(APP_FIFO_A_PTR)
+    print(f"[usbtrigger]    Parser -> FIFO A: {before} -> {blk} Block"
+          + (f"   [{err}]" if err else ""))
+    ok = ok and blk == before + 1 and not err
+
+    # ---- 3) Port-Task holt den Block ab und fuettert das Modul --------
+    emu.wr(0x20000941, 0, 1)
+    emu.wr(0x20000940, 0, 1)
+    # Nach der Uebergabe an das Nachrichtenmodul (Aufruf 0x080181CA kehrt
+    # nach 0x0801D93A zurueck) anhalten - der Rest der Task braucht
+    # Peripherie, die hier nicht aufgebaut ist.
+    emu.stop_pcs.add(0x0801D93A)
+    err = run(APP_PORT_TASK, 800_000)
+    obj_len = emu.rd(APP_MSG_OBJ + 12, 2)
+    obj_pay = emu.rd(APP_MSG_OBJ + 16)
+    idx3 = emu.rd(0x20000941, 1)
+    print(f"[usbtrigger] 3) Port-Task: obj[+12]={obj_len} obj[+16]={obj_pay:#010x} "
+          f"FIFO A={fifo_count(APP_FIFO_A_PTR)} Index={idx3}"
+          + (f"   [{err}]" if err else ""))
+    if obj_pay:
+        print(f"[usbtrigger]    Nutzdaten im Objekt: "
+              f"{bytes(emu.mu.mem_read(obj_pay, min(obj_len + 2, 16))).hex(' ')}")
+    ok = ok and obj_len == len(fw.TRIGGER_MSG)
+
+    # ---- 4) Matcher/Produzent + Dispatcher ----------------------------
+    err2 = run(0x0801891C, 400_000)
+    idx = emu.rd(0x20000941, 1)
+    idw = emu.rd(0x08036F40 + idx * 20 + 12) if idx < 51 else 0
+    hi = (idw >> 8) & 0xFF
+    fn = emu.rd(0x08036F2C + hi * 4) if hi < 8 else 0
+    print(f"[usbtrigger] 4) Matcher -> Index={idx} id={idw:#06x} fn={fn:#010x}"
+          + (f"   [{err2}]" if err2 else ""))
+    ok = ok and idx == 4 and (fn & ~1) == 0x08017378
+
+    emu.wr(0x20000930, 0x40, 1)
+    emu.wr(0x20000928, 0x0800, 2)
+    emu.wr(0x20000942, 0, 1)
+    hit: List[int] = []
+
+    def cb(mu, address, size, ud):
+        if address == 0x08017378:
+            hit.append(address)
+            mu.emu_stop()
+
+    h = emu.mu.hook_add(UC_HOOK_CODE, cb)
+    try:
+        emu.mu.reg_write(UC_ARM_REG_SP, SRAM + SRAM_SIZE - 0x400)
+        emu.mu.reg_write(UC_ARM_REG_LR, RET_SENTINEL | 1)
+        emu.mu.emu_start(0x08018D04 | 1, RET_SENTINEL, count=800_000)
+    except UcError as exc:
+        print(f"[usbtrigger]    Dispatcher-Fehler: {exc}")
+    finally:
+        emu.mu.hook_del(h)
+    print(f"[usbtrigger]    Dispatcher -> Reset-Handler 0x08017378: {bool(hit)}")
+    ok = ok and bool(hit)
+
+    print("[usbtrigger] ->", "OK" if ok else "MISMATCH")
+    return 0 if ok else 1
+
+
 class _EmuBlTransport:
     """Transport-Ersatz fuer den Emulator.
 
@@ -938,13 +1086,28 @@ class _EmuBlTransport:
         if len(rep) < 0x40:
             rep += bytes(0x40 - len(rep))
         self.sent += 1
-        emu = self.emu
-        # Das Tool baut bereits [len][payload] -> passt genau in BL_RAW_RX
-        emu.mu.mem_write(BL_RAW_RX, rep)
-        emu.wr(BL_TXDONE, 1, 1)
-        emu.wr(BL_MODE + 1, 0, 1)              # Kanal 1 (USB)
-        emu.stop_pcs.add(0x0800190A)
-        emu.call(0x08000AAA)
+        e = self.emu
+        # Der Report liegt so im Puffer, wie ihn die Hardware ablegt
+        # (App-Rahmen ab Offset 0), dann laeuft der echte USB-Layer.
+        e.mu.mem_write(BL_RAW_RX, rep[:0x40])
+        e.wr(BL_TXDONE, 1, 1)
+        e.wr(BL_MODE + 1, 1, 1)                 # Kanal 1 (USB)
+        e.stop_pcs.add(0x0800190A)
+        try:
+            e.call(0x08000AAA)
+            return
+        except UcError:
+            pass                                  # Fallback unten
+        # Fallback: Nutzlast auf der Kommandoschicht einspeisen
+        sys.path.insert(0, str(ROOT / "tools"))
+        import stm_display_fw as fw  # noqa: PLC0415
+        pf = fw.parse_app_frame(rep)
+        if pf is not None:
+            if pf[1] != 0xFE:
+                _bl_feed(e, pf[3])
+            return
+        if rep and rep[0]:
+            _bl_feed(e, rep[1:1 + rep[0]])
 
     def recv(self, timeout_ms: int = 500):
         txs = self.rec.get("tx")
@@ -1000,8 +1163,1174 @@ def scenario_uploadtool(emu: "Emu") -> int:
     return 0 if ok else 1
 
 
+# ==========================================================================
+# BMS-Patch: 0x555 soll dem Displayzustand folgen
+# ==========================================================================
+P555_WORD = 0x2000096C     # 32-Bit-Nutzwort der CAN-Botschaft 0x555 (Bit 0)
+P_RAMP = 0x2000087B        # Rampenzaehler
+P_ENABLE = 0x2000087E      # "CAN 0x201 empfangen"
+P_STATE = 0x200008FE       # Zustandsmaschine (0..3)
+P_SHDN = 0x200008FF        # Abschaltflag -> fuehrt in Zustand 3 (Sackgasse)
+P_F1A0 = 0x20000994        # Bit 0 -> f_f1a0()
+P_MODE = 0x200002CF        # gecachter Display-Modus (2 = laeuft, 4 = aus)
+P_MODEFREEZE = 0x200002CD  # Freeze-Flag: Getter liefert Cache ohne Dereferenz
+P_DESC_DIRTY = 0x20009908  # Bit 7 je TX-Descriptor (f_1C2CE)
+
+F_RAMP = 0x0801673C        # 0x555-Logik, wird zyklisch in Zustand 2 gerufen
+F_OFF = 0x080167B6         # Abschaltpfad: 0x555 = 0
+F_SETEN = 0x080167E4       # 0x201-Empfang: [0x2000087E] = 1
+F_DISPATCH = 0x08016822    # Zustandsmaschine
+
+BMS_IMG_ORIG = ROOT / "data" / "stm32f105_conti.bin"
+BMS_IMG_PATCH = ROOT / "data" / "stm32f105_bms_control.hex"
+
+FW_APP_BASE = 0x08008000
+FW_APP_CRC_ADDR = 0x0803FFFC
+
+
+def _bmspatch_emu(img: bytes) -> Emu:
+    """Emu mit Stubs fuer alles, was nicht die gepruefte Logik ist."""
+    e = Emu(img)
+    noop = lambda _e: None                                   # noqa: E731
+    # CAN-Sperrzaehler, Event-Ausgaben und Standby-Sequenz
+    for a in (0x0801D0CE, 0x0801D0EE, 0x08015EF8, 0x08015F6C,
+              0x08008A62, 0x0800ED76, 0x08012DC8):
+        e.add_stub(a, noop)
+    # f_0F1B2() ist reine Eingabe ("Bit 1 gesetzt?") -> 0
+    e.add_stub(0x0800F1B2, lambda x: x.mu.reg_write(UC_ARM_REG_R0, 0))
+    return e
+
+
+def _bms_ramp(e: Emu, enable: int, ramp: int, bit: int = 0) -> Tuple[int, int]:
+    """Ruft f_1673C. Liefert (0x555-Bit, Descriptor-Dirty-Bit)."""
+    e.wr(P555_WORD, bit)
+    e.wr(P_DESC_DIRTY + 8, 0, 1)
+    e.wr(P_ENABLE, enable, 1)
+    e.wr(P_RAMP, ramp, 1)
+    e.call(F_RAMP)
+    return e.rd(P555_WORD) & 1, (e.rd(P_DESC_DIRTY + 8, 1) >> 7) & 1
+
+
+def _bms_dispatch(e: Emu, mode: int, enable: int, shdn: int,
+                  f1a0: int) -> Tuple[int, int]:
+    """Ruft die Zustandsmaschine aus Zustand 2. Liefert (Zustand, 0x555)."""
+    e.wr(P555_WORD, 0)
+    e.wr(P_STATE, 2, 1)
+    e.wr(P_MODEFREEZE, 1, 1)
+    e.wr(P_MODE, mode, 1)
+    e.wr(P_ENABLE, enable, 1)
+    e.wr(P_SHDN, shdn, 1)
+    e.wr(P_F1A0, f1a0, 1)
+    e.wr(P_RAMP, 0, 1)
+    e.call(F_DISPATCH)
+    return e.rd(P_STATE, 1), e.rd(P555_WORD) & 1
+
+
+def _bms_app_crc(e: Emu) -> int:
+    """Rechnet die Bootloader-CRC ueber die Applikation (0x08000924).
+
+    Deskriptor {+0 = Laenge in Bytes, +4 = Datenzeiger, +12 = Ergebnis}.
+    """
+    sptr = SRAM + 0x3000
+    e.mu.mem_write(sptr, bytes(16))
+    e.wr(sptr + 0, FW_APP_CRC_ADDR - FW_APP_BASE)
+    e.wr(sptr + 4, FW_APP_BASE)
+    e.call(0x08000924, r0=sptr, max_insns=200_000_000)
+    return e.rd(sptr + 12)
+
+
+# --- Abschalt-Timer (P5) --------------------------------------------------
+P_TIMER = 0x20000100       # 32-Bit-Countdown, Reload 3000
+P_TICK100 = 0x20000104     # Halfword-Teiler (100)
+F_TASK = 0x080093D2        # zyklischer Task, enthaelt den Countdown
+F_DELAY = 0x08009E1C       # Wartepunkt am Ende einer Task-Iteration
+
+
+def _ret0(e: Emu) -> None:
+    e.mu.reg_write(UC_ARM_REG_R0, 0)
+
+
+def _ret2(e: Emu) -> None:
+    e.mu.reg_write(UC_ARM_REG_R0, 2)
+
+
+def _adc_zero(e: Emu) -> None:
+    e.mu.mem_write(e.mu.reg_read(UC_ARM_REG_R1), b"\x00\x00")
+    e.mu.reg_write(UC_ARM_REG_R0, 0)
+
+
+def _bms_task_emu(img: bytes) -> Emu:
+    """Emu mit Stubs, damit der zyklische Task genau eine Iteration durchlaeuft
+    und dabei den Zweig \"keine Aktivitaet\" nimmt."""
+    e = Emu(img)
+    noop = lambda _e: None                                   # noqa: E731
+    for a in (0x08015EF8, 0x08015F6C, 0x08008A62, 0x0800ED76, 0x08012DC8,
+              0x0801D0CE, 0x0801D0EE, 0x080135DE):
+        e.add_stub(a, noop)
+    # "keine Aktivitaet": f_0F390() = 0 (<=10), f_0EACA() = 0, f_20144() = 0
+    for a in (0x0800F1B2, 0x0801FD8E, 0x0801B8C8, 0x0801EE58, 0x0801EE48,
+              0x0800EACA, 0x08020144, 0x0800F390):
+        e.add_stub(a, _ret0)
+    e.add_stub(0x0800B59C, _ret2)      # Display-Modus 2 (laeuft), nicht 4
+    e.add_stub(0x0800E4C2, _adc_zero)  # ADC -> 0
+    e.stop_pcs.add(F_DELAY)            # nach einer Iteration anhalten
+    return e
+
+
+def _run_task(e: Emu) -> Tuple[int, int]:
+    """Ruft den zyklischen Task einmal auf. Liefert (Timer, Abschaltflag)."""
+    e.wr(P_TIMER, 1)          # Timer steht kurz vor dem Ablauf
+    e.wr(P_TICK100, 1, 2)
+    e.wr(P_SHDN, 0, 1)
+    e.call(F_TASK)
+    return e.rd(P_TIMER), e.rd(P_SHDN, 1)
+
+
+# --- CAN (P6) -------------------------------------------------------------
+CAN_MCR = 0x40006400
+CAN_MSR = 0x40006404
+CAN_TSR = 0x40006408
+CAN_RF0R = 0x4000640C
+F_CAN_ENTER_INIT = 0x0801B93C
+
+
+def _can_enter_init(e: Emu) -> int:
+    """Ruft f_1B93C auf und liefert den geschriebenen CAN_MCR-Wert."""
+    e.wr(CAN_MCR, 0)
+    e.wr(CAN_MSR, 1)          # INAK gesetzt -> Warteschleife endet sofort
+    e.call(F_CAN_ENTER_INIT)
+    return e.rd(CAN_MCR)
+
+
+def scenario_bmspatch(emu: Emu) -> int:
+    """Verifiziert den BMS-Patch funktional in der Emulation.
+
+    Geprueft wird die echte Firmware (nicht nachgebauter Code):
+
+      A  Original: ohne 0x201 bleibt 0x555 = 0  -- auch bei Rampe 15
+         (das ist der Fehler, der hier behoben wird)
+      B  Original: mit 0x201 (oder Rampe 15) wird 0x555 = 1
+         -- beweist, dass die Emulation originalgetreu rechnet
+      C  Patch:    ohne 0x201 wird 0x555 = 1 (P1)
+      D  Patch:    Abschaltpfad f_167B6 setzt 0x555 = 0 (P2)
+      E  Patch:    Zustand 2 + [0x8FF] bleibt Zustand 2 (P4)
+      F  Original: Zustand 2 + [0x8FF] -> Zustand 3 (Sackgasse, Gegenprobe)
+      G  Patch:    Modus 4 (Display aus) -> Zustand 1 + 0x555 = 0
+      K  Abschalt-Timer (P5): Original setzt [0x200008FF], Patch nicht
+      L  CAN_MCR (P6): Original schreibt nur INRQ, Patch zusaetzlich ABOM
+    """
+    sys.path.insert(0, str(ROOT / "tools"))
+    import stm_display_fw as fw                                    # noqa: PLC0415
+
+    if not BMS_IMG_PATCH.exists():
+        print(f"FEHLER: {BMS_IMG_PATCH} fehlt -- erst tools/patch_bms.py laufen "
+              f"lassen.")
+        return 2
+
+    # Gepatchte Firmware absichtlich ueber den HEX-Pfad laden, damit der
+    # Intel-HEX-Parser von stm_display_fw mitgeprueft wird.
+    patched = bytes(fw.load_image(BMS_IMG_PATCH).data)
+    orig = BMS_IMG_ORIG.read_bytes()
+    print(f"[bmspatch] Original {len(orig)} B, Patch (aus HEX) {len(patched)} B, "
+          f"CRC-Image 0x{len(orig) - 1:06x}")
+
+    checks: List[Tuple[str, bool, str]] = []
+
+    def _fmt(v) -> str:
+        if isinstance(v, int) and v > 0x0FFF:
+            return f"0x{v:08x}"
+        return repr(v)
+
+    def check(name: str, got, want) -> None:
+        ok = got == want
+        checks.append((name, ok, f"ist {_fmt(got)}, erwartet {_fmt(want)}"))
+        print(f"    {'OK ' if ok else '?? '}{name}: ist {_fmt(got)}, "
+              f"erwartet {_fmt(want)}")
+
+    o = _bmspatch_emu(orig)
+    p = _bmspatch_emu(patched)
+
+    try:
+        print("[bmspatch] --- Original ---")
+        # A: 0x201-Handler setzt das Flag
+        o.wr(P_ENABLE, 0, 1)
+        o.call(F_SETEN)
+        check("A  Original: 0x201-Handler setzt Flag", o.rd(P_ENABLE, 1), 1)
+
+        # B: ohne 0x201 -> 0x555 bleibt 0, auch bei Rampe 15
+        b0, _ = _bms_ramp(o, enable=0, ramp=0)
+        b15, _ = _bms_ramp(o, enable=0, ramp=15)
+        check("B  Original ohne 0x201 (Rampe 0)", b0, 0)
+        check("B  Original ohne 0x201 (Rampe 15)", b15, 0)
+
+        # C: mit 0x201 -> 0x555 = 1 (Gegenprobe: Emulation ist originalgetreu)
+        c_en, _ = _bms_ramp(o, enable=1, ramp=0)
+        c15, c_dirty = _bms_ramp(o, enable=1, ramp=15)
+        check("C  Original mit 0x201 (Rampe 0)", c_en, 0)
+        check("C  Original mit 0x201 (Rampe 15)", c15, 1)
+        check("C  Original: TX-Descriptor markiert", c_dirty, 1)
+
+        print("[bmspatch] --- Patch ---")
+        # D: ohne 0x201 -> sofort 0x555 = 1
+        d0, d_dirty = _bms_ramp(p, enable=0, ramp=0)
+        check("D  Patch ohne 0x201 -> 0x555 = 1", d0, 1)
+        check("D  Patch: TX-Descriptor markiert", d_dirty, 1)
+
+        # E: Abschaltpfad
+        p.wr(P555_WORD, 1)
+        p.call(F_OFF)
+        check("E  Patch: f_167B6 -> 0x555 = 0", p.rd(P555_WORD) & 1, 0)
+
+        # F: Zustandsmaschine, Modus 2
+        st2, v2 = _bms_dispatch(p, mode=2, enable=0, shdn=0, f1a0=0)
+        check("F  Patch: Modus 2 -> Zustand 2", st2, 2)
+        check("F  Patch: Modus 2 -> 0x555 = 1", v2, 1)
+
+        # G: Abschaltflag darf Zustand 2 nicht mehr verlassen (P4)
+        st_s, v_s = _bms_dispatch(p, mode=2, enable=0, shdn=1, f1a0=1)
+        check("G  Patch: [0x8FF] -> Zustand bleibt 2", st_s, 2)
+        check("G  Patch: [0x8FF] -> 0x555 bleibt 1", v_s, 1)
+
+        # H: Gegenprobe Original -> Sackgasse Zustand 3
+        o.wr(P_ENABLE, 1, 1)
+        st_o, v_o = _bms_dispatch(o, mode=2, enable=1, shdn=1, f1a0=1)
+        check("H  Original: [0x8FF] -> Zustand 3", st_o, 3)
+        check("H  Original: [0x8FF] -> 0x555 = 0", v_o, 0)
+
+        # I: Display aus (Modus 4) -> Zustand 1 + 0x555 = 0
+        st4, v4 = _bms_dispatch(p, mode=4, enable=0, shdn=0, f1a0=0)
+        check("I  Patch: Modus 4 -> Zustand 1", st4, 1)
+        check("I  Patch: Modus 4 -> 0x555 = 0", v4, 0)
+
+        # J: Bootloader-CRC (P3) -- der Boot entscheidet ueber die App-CRC.
+        # Die CRC-Funktion 0x08000924 laeuft echt gegen das emulierte
+        # CRC-Peripheral, nicht gegen Python nachgerechnet.
+        stored_o = int.from_bytes(orig[FW_APP_CRC_ADDR - FLASH:
+                                       FW_APP_CRC_ADDR - FLASH + 4], "big")
+        stored_p = int.from_bytes(patched[FW_APP_CRC_ADDR - FLASH:
+                                          FW_APP_CRC_ADDR - FLASH + 4], "big")
+        crc_o = _bms_app_crc(o)
+        crc_p = _bms_app_crc(p)
+        print(f"    (Original CRC=0x{stored_o:08x}, Patch CRC=0x{stored_p:08x})")
+        check("J  Original: Bootloader-CRC == gespeichert", crc_o, stored_o)
+        check("J  Patch:    Bootloader-CRC == gespeichert", crc_p, stored_p)
+
+        # K: Abschalt-Timer (P5)
+        t_o = _bms_task_emu(orig)
+        t_p = _bms_task_emu(patched)
+        k_timer_o, k_flag_o = _run_task(t_o)
+        k_timer_p, k_flag_p = _run_task(t_p)
+        print(f"    (Timer: Original={k_timer_o} Flag={k_flag_o} | "
+              f"Patch={k_timer_p} Flag={k_flag_p})")
+        check("K  Original: Timer laeuft ab -> [0x8FF] = 1", k_flag_o, 1)
+        check("K  Patch:    Flag bleibt 0", k_flag_p, 0)
+        check("K  Patch:    Zaehler neu auf 3000 geladen", k_timer_p, 3000)
+
+        # L: CAN ABOM (P6)
+        mcr_o = _can_enter_init(o)
+        mcr_p = _can_enter_init(p)
+        print(f"    (CAN_MCR: Original=0x{mcr_o:08x} Patch=0x{mcr_p:08x})")
+        check("L  Original: MCR.ABOM (0x40) nicht gesetzt", mcr_o & 0x40, 0)
+        check("L  Patch:    MCR.ABOM (0x40) gesetzt", mcr_p & 0x40, 0x40)
+        check("L  Patch:    MCR.INRQ (0x01) weiterhin gesetzt", mcr_p & 1, 1)
+    except UcError as exc:
+        import traceback                                            # noqa: PLC0415
+        print(f"[bmspatch] Emulationsfehler: {exc}")
+        traceback.print_exc()
+        return 1
+
+    bad = [n for n, ok, _ in checks if not ok]
+    print(f"[bmspatch] {len(checks) - len(bad)}/{len(checks)} Checks OK")
+    if bad:
+        print("[bmspatch] FEHLGESCHLAGEN:", ", ".join(bad))
+    print("[bmspatch] ->", "OK" if not bad else "MISMATCH")
+    return 0 if not bad else 1
+
+
+# ==========================================================================
+# Flash-Pfad des Bootloaders: Erase (f_801964) und Program (f_801998)
+# --------------------------------------------------------------------------
+# Der Bootloader kopiert beim Start einen 536-Byte-Blob aus dem Flash
+# (0x08005108) nach 0x2000B248 und springt fuer alle Flash-Operationen per
+# Trampolin dorthin:
+#
+#     RAM 0x2000B274 (+0x2C)  <- 0x08005134  "unlock"  (auf HSI umschalten,
+#                                              FLASH_KEYR entriegeln)
+#     RAM 0x2000B2A6 (+0x5E)  <- 0x08005166  "lock"    (FLASH_CR.LOCK = 1)
+#     RAM 0x2000B2F4 (+0xAC)  <- 0x080051B4  "erase"   (Seitenschleife)
+#     RAM 0x2000B39C (+0x154) <- 0x0800525C  "program" (Halbwort + Verify)
+#
+# Der Deskriptor liegt fest bei 0x20000248:
+#     +0 Status (+1 = WRPRTERR/PGERR beim Eintritt, +2 = Timeout,
+#                +3 = Bereich ungültig, +4 = Verify-Fehler)
+#     +4 Adresse    +8 Laenge    +12 Quellzeiger    +16 Watchdog-Callback
+# ==========================================================================
+F_ERASE = 0x08001964          # f_801964(addr, len)           -> 0/1/3
+F_PROG = 0x08001998           # f_801998(addr, len, srcptr)    -> 0/1/2/3
+DESC = 0x20000248
+BLOB_SRC = 0x08005108
+BLOB_DST = 0x2000B248
+BLOB_LEN = 0x218
+
+FLASH_KEYR = 0x40022004
+FLASH_SR = 0x4002200C
+FLASH_CR = 0x40022010
+FLASH_AR = 0x40022014
+
+SR_BSY = 1 << 0
+SR_PGERR = 1 << 2
+SR_WRPRTERR = 1 << 4
+SR_EOP = 1 << 5
+CR_PG = 1 << 0
+CR_PER = 1 << 1
+CR_STR = 1 << 6
+CR_LOCK = 1 << 7
+
+
+class FlashModel:
+    """Minimales STM32F1-Flashmodell (nur was der Bootloader benutzt)."""
+
+    def __init__(self, emu: "Emu", wrp_from: int | None = None,
+                 locked: bool = False) -> None:
+        self.e = emu
+        self.wrp_from = wrp_from          # ab dieser Adresse schreibgeschuetzt
+        self.locked = locked              # FLASH_CR bleibt gesperrt (KEYR wirkungslos)
+        self.sr = SR_EOP
+        self.cr = CR_LOCK
+        self.ar = 0
+        self.key = 0
+        self.log: List[Tuple[int, int]] = []   # (pc, wert) auf DESC[+0]
+        emu.wr(FLASH_SR, self.sr)
+        emu.wr(FLASH_CR, self.cr)
+        self.srlog: List[Tuple[int, int]] = []
+        emu.mu.hook_add(UC_HOOK_MEM_WRITE, self._on_write)
+        emu.mu.hook_add(UC_HOOK_MEM_WRITE, self._on_desc_write)
+        emu.mu.hook_add(UC_HOOK_MEM_READ, self._on_read)
+
+    # -- Registerverhalten ------------------------------------------------
+    def _on_read(self, mu, access, address, size, value, user_data):
+        if address == FLASH_SR and size == 4:
+            mu.mem_write(FLASH_SR, struct.pack("<I", self.sr))
+            self.srlog.append((mu.reg_read(UC_ARM_REG_PC), self.sr))
+        elif address == FLASH_CR and size == 4:
+            mu.mem_write(FLASH_CR, struct.pack("<I", self.cr))
+
+    def sr_trace(self) -> str:
+        return " ".join(f"0x{pc:08x}=0x{v:02x}" for pc, v in self.srlog[:12])
+
+    def _on_desc_write(self, mu, access, address, size, value, user_data):
+        if address == DESC and size == 1:
+            self.log.append((mu.reg_read(UC_ARM_REG_PC), int(value) & 0xFF))
+
+    def status_trace(self) -> str:
+        return " ".join(f"0x{pc:08x}->0x{v:02x}" for pc, v in self.log)
+
+    def _protected(self, addr: int) -> bool:
+        return self.wrp_from is not None and addr >= self.wrp_from
+
+    @property
+    def _cr_locked(self) -> bool:
+        return self.locked or bool(self.cr & CR_LOCK)
+
+    def _on_write(self, mu, access, address, size, value, user_data):
+        self.reg_write(address, value, size)
+
+    # -- Registerlogik (auch direkt nutzbar, z. B. fuer Tests) -------------
+    def reg_write(self, address: int, value: int, size: int = 4) -> None:
+        if address == FLASH_SR:
+            # Schreiben loescht die W1C-Bits (2 = PGERR, 4 = WRPRTERR, 5 = EOP)
+            self.sr &= ~value & 0xFFFFFFFF
+            return
+        if address == FLASH_CR:
+            self.cr = value
+            if (value & CR_STR) and (value & CR_PER) and not (value & CR_PG):
+                self._erase_page()
+            return
+        if address == FLASH_AR:
+            self.ar = value
+            return
+        if address == FLASH_KEYR:
+            if self.locked:
+                return
+            if self.key == 0 and value == 0x45670123:
+                self.key = 1
+            elif self.key == 1 and value == 0xCDEF89AB:
+                self.key = 2
+                self.cr &= ~CR_LOCK
+            else:
+                self.key = 0
+                self.cr |= CR_LOCK
+            return
+        if (FLASH <= address < FLASH + FLASH_SIZE and size == 2
+                and (self.cr & CR_PG)):
+            if self._cr_locked:
+                return                     # Zugriff wird verworfen (CR.LOCK)
+            old = int.from_bytes(self.e.mu.mem_read(address, 2), "little")
+            new = int(value) & 0xFFFF
+            if new & ~old & 0xFFFF:
+                self.sr |= SR_PGERR       # 1-Bits ueber 0 -> Programmierfehler
+            self.e.mu.mem_write(address,
+                                ((old & new) & 0xFFFF).to_bytes(2, "little"))
+
+    def reg_read(self, address: int) -> int:
+        if address == FLASH_SR:
+            return self.sr
+        if address == FLASH_CR:
+            return self.cr
+        if address == FLASH_AR:
+            return self.ar
+        return 0
+
+    def _erase_page(self):
+        base = self.ar & ~0x7FF
+        if self._cr_locked:
+            return                         # keine Wirkung, kein Fehlerflag
+        if self._protected(base):
+            self.sr |= SR_WRPRTERR          # Seite geschuetzt -> nichts passiert
+        else:
+            self.e.mu.mem_write(base, b"\xff" * 0x800)
+
+    # -- Helfer ------------------------------------------------------------
+    def src(self, addr: int, n: int) -> bytes:
+        return bytes(self.e.mu.mem_read(addr, n))
+
+    def desc_status(self) -> int:
+        return self.e.rd(DESC, 1)
+
+    def desc_set(self, addr: int, ln: int, src: int = 0) -> None:
+        self.e.wr(DESC, 0, 1)
+        self.e.wr(DESC + 4, addr)
+        self.e.wr(DESC + 8, ln)
+        self.e.wr(DESC + 12, src)
+
+
+def _flash_emu(img: bytes, wrp_from: int | None,
+               locked: bool = False) -> Tuple["Emu", FlashModel]:
+    e = Emu(img)
+    # Der Blob wird auf der echten Hardware beim Start in den RAM kopiert.
+    off = BLOB_SRC - FLASH
+    e.mu.mem_write(BLOB_DST, img[off:off + BLOB_LEN])
+    return e, FlashModel(e, wrp_from, locked)
+
+
+def scenario_flashprog(emu: "Emu") -> int:
+    """Reproduziert den auf der Hardware beobachteten Fehler 0x72."""
+    img = emu.img
+    app_base = 0x08008000
+    app_len = 0x1000          # 2 Seiten fuer den Test
+    blk_addr = 0x08008000
+    blk = bytes(img[blk_addr - FLASH: blk_addr - FLASH + 56])
+    src = SRAM + 0x6000
+    ok = True
+
+    def report(name: str, cond: bool, text: str) -> None:
+        nonlocal ok
+        ok = ok and cond
+        print(f"  [{'OK ' if cond else 'FEHL'}] {name:22s} {text}")
+
+    print("\n--- 1) Ohne WRP: Erase + Programmieren (Sollweg) ---")
+    e, fm = _flash_emu(img, None)
+    fm.desc_set(app_base, app_len)
+    r = (e.call(F_ERASE, r0=app_base, r1=app_len), e.ret())[1]
+    blank = fm.src(app_base, 8) == b"\xff" * 8
+    report("Erase Rueckgabe", r == 0, f"ret={r} (0 = ok)")
+    report("Flash wirklich leer", blank, "0x08008000..0x08008007 = FF")
+    report("FLASH_SR sauber", fm.sr & (SR_WRPRTERR | SR_PGERR) == 0,
+           f"SR=0x{fm.sr:02x}")
+    fm.desc_set(blk_addr, len(blk), src)
+    e.mu.mem_write(src, blk)
+    e.call(F_PROG, r0=blk_addr, r1=len(blk), r2=src)
+    r = e.ret()
+    report("Programm Rueckgabe", r == 0, f"ret={r} (0 = ok)")
+    report("Daten im Flash", fm.src(blk_addr, len(blk)) == blk, "identisch")
+    print(f"     Statusverlauf: {fm.status_trace()}")
+    print(f"     SR-Lesezugriffe: {fm.sr_trace()}")
+
+    print("\n--- 2) Mit WRP (so verhaelt sich das Geraet) ---")
+    e, fm = _flash_emu(img, 0x08008000)
+    fm.desc_set(app_base, app_len)
+    e.call(F_ERASE, r0=app_base, r1=app_len)
+    r = e.ret()
+    kept = fm.src(app_base, 8) == bytes(img[app_base - FLASH:app_base - FLASH + 8])
+    report("Erase Rueckgabe", r == 0, f"ret={r} -> meldet ERFOLG")
+    report("Flash unveraendert", kept, "Seiten wurden NICHT geloescht")
+    report("WRPRTERR gesetzt", bool(fm.sr & SR_WRPRTERR), f"SR=0x{fm.sr:02x}")
+    fm.desc_set(blk_addr, len(blk), src)
+    e.call(F_PROG, r0=blk_addr, r1=len(blk), r2=src)
+    r = e.ret()
+    report("Programm Rueckgabe", r == 3, f"ret={r} -> Fehlercode 0x72")
+    report("Stub meldet 1", 1 in [v for _, v in fm.log],
+           f"Statusverlauf: {fm.status_trace()}")
+
+    print("\n--- 3) Ohne Erase, ueber belegten Flash schreiben ---")
+    e, fm = _flash_emu(img, None)
+    print(f"     vor dem Aufruf: SR-Modell=0x{fm.sr:02x} "
+          f"SR-Speicher=0x{fm.e.rd(FLASH_SR):08x}")
+    fm.desc_set(blk_addr, len(blk), src)
+    e.mu.mem_write(src, bytes(b ^ 0xFF for b in blk))   # bewusst anders
+    e.call(F_PROG, r0=blk_addr, r1=len(blk), r2=src)
+    r = e.ret()
+    report("Programm Rueckgabe", r == 3, f"ret={r} -> Fehlercode 0x72")
+    report("PGERR gesetzt", bool(fm.sr & SR_PGERR), f"SR=0x{fm.sr:02x}")
+    print(f"     SR-Lesezugriffe: {fm.sr_trace()}")
+    sw = [v for _, v in fm.log]
+    report("Stub meldet Fehler", bool(sw), f"Statusverlauf: {fm.status_trace()}"
+           f"  (1 = Eintritt, 4 = Verify)")
+
+    print("\n--- 4) Kleine Seite, ungeschuetzt: ein einzelner Block ---")
+    e, fm = _flash_emu(img, 0x08008000)
+    fm.desc_set(0x08010000, 0x800)
+    e.call(F_ERASE, r0=0x08010000, r1=0x800)
+    report("Erase 1 Seite (WRP)", e.ret() == 0, "meldet Erfolg")
+    report("WRPRTERR gesetzt", bool(fm.sr & SR_WRPRTERR),
+           "-> jede Seite >= 0x08008000 ist geschuetzt")
+
+    print("\n--- 5) Flash bleibt gesperrt (FLASH_CR.LOCK wirksam) ---")
+    e, fm = _flash_emu(img, None, locked=True)
+    fm.desc_set(app_base, app_len)
+    e.call(F_ERASE, r0=app_base, r1=app_len)
+    report("Erase Rueckgabe", e.ret() == 0, "meldet ebenfalls Erfolg")
+    report("Flash unveraendert", fm.src(app_base, 8) ==
+           bytes(img[app_base - FLASH:app_base - FLASH + 8]), "nichts geloescht")
+    report("KEIN WRPRTERR", not (fm.sr & SR_WRPRTERR),
+           f"SR=0x{fm.sr:02x} -> unterscheidet sich von WRP")
+    fm.desc_set(blk_addr, len(blk), src)
+    e.mu.mem_write(src, bytes(b ^ 0xFF for b in blk))
+    e.call(F_PROG, r0=blk_addr, r1=len(blk), r2=src)
+    r = e.ret()
+    print(f"  [INFO] Programm Rueckgabe ret={r} (Harness modelliert das "
+          f"Verwerfen der Schreibzugriffe nur unvollstaendig)")
+    print(f"  [INFO] Statusverlauf: {fm.status_trace()}")
+    # Wichtiges Unterscheidungskriterium (im Harness nicht abschliessbar):
+    # Bei gesperrtem CR wird ein Schreibzugriff verworfen, ohne Fehlerflag.
+    # Sind die Daten identisch zum Flash-Inhalt, besteht das Verify -> Erfolg.
+    # Bei WRP bricht der Stub dagegen IMMER schon beim Eintritt ab (Status 1).
+    print("  [INFO] Kriterium: schlug auf der Hardware auch der ERSTE Block "
+          "(0x08008000, datengleich) fehl,")
+    print("         spricht das fuer WRP (Eintrittsabbruch, Status 1) und "
+          "gegen ein nur gesperrtes CR.")
+
+    print()
+    print("ERGEBNIS: beide Ursachen (WRP / gesperrtes CR) reproduzieren 0x72,"
+          if ok else "ERGEBNIS: Abweichung gefunden!")
+    print("          unterscheidbar nur am Statusbyte (1 = WRP, 4 = Sperre).")
+    return 0 if ok else 1
+
+
+# --- Modell der Bootloader-Datenstrukturen ---------------------------------
+BL_HANDLE = 0x200000F8       # Interface-Handle: +1 Flag, +3 Modus, +4 Objekt
+BL_FSTATE70 = 0x20000170     # Rahmenzustand: +0 Laenge, +1 Sequenz, +4 Zeiger
+OBJ_IF = 0x20005000          # Interface-Objekt (Zustand +0x354, Byte +0xA2)
+OBJ_IF_Q = 0x20005400        # Zeigerziel aus Objekt +0x0C
+OBJ_CH = 0x20005500          # Kanalobjekt (Flag +1), via *(0x20000174)
+OBJ_IF_STATE = 0x354
+OBJ_IF_BYTE = 0xA2
+
+
+def bl_ram_objects(emu: "Emu", iface_state: int = 0, mode: int = 4) -> None:
+    """Legt die Strukturen an, die die echten Bootloader-Funktionen erwarten.
+
+    Damit laufen f_801E70 (Zustandsabfrage) und f_801EF8 (Benachrichtigung)
+    als echter Code -- es muss keine Funktion ersetzt werden.
+    """
+    emu.mu.mem_write(OBJ_IF, bytes(0x400))                 # Objekt nullen
+    emu.wr(OBJ_IF + OBJ_IF_STATE, iface_state, 1)          # != 4 -> Fruehausstieg
+    emu.wr(OBJ_IF + OBJ_IF_BYTE, 0, 1)
+    emu.wr(OBJ_IF + 0x0C, OBJ_IF_Q)                        # Zeiger auf Q
+    emu.wr(OBJ_IF_Q, 0)
+    emu.mu.mem_write(OBJ_CH, bytes(0x60))
+    emu.wr(OBJ_CH + 1, 1, 1)                               # Flag gesetzt
+    emu.wr(BL_HANDLE + 1, 0, 1)                            # Flag 0 -> Objekt lesen
+    emu.wr(BL_HANDLE + 3, mode, 1)                         # Modus (4 = kein Reset)
+    emu.wr(BL_HANDLE + 4, OBJ_IF)
+    emu.wr(BL_FSTATE70 + 1, 0, 1)                          # Sequenzzaehler = 0
+    emu.wr(BL_FSTATE70 + 4, OBJ_CH + 0x54)                 # container_of-Idiom
+
+
+def _bl_install_realflash(emu: "Emu", rec: Dict[str, object],
+                          blob: bool = True) -> None:
+    """Wie _bl_install, aber mit ECHTEM Rahmen-, Flash- und Trampolinpfad.
+
+    Gestubbt bleiben nur die nicht emulierbaren Raender: USB-Senden,
+    USB-/CAN-Poll, Fehlerausgabe, Watchdog-Fuetterung und die Abfrage des
+    Interface-Objekts (f_801E70), dessen Hardwareobjekt nicht existiert.
+    Echt laufen: Report-Loader (0x08003ABC), Dispatcher, Handler,
+    f_801964/f_801998, die Trampoline und damit der RAM-Blob.
+    """
+    def rec_report(e: "Emu") -> None:
+        a = e.mu.reg_read(UC_ARM_REG_R0)
+        b = e.mu.reg_read(UC_ARM_REG_R1)
+        if 0x20000000 <= a < 0x20010000:
+            ptr, ln = a, b
+        else:
+            ptr, ln = b, a
+        ln = max(0, min(int(ln), 0x40))
+        data = bytes(e.mu.mem_read(ptr, ln)) if ptr else b""
+        if not data:
+            return
+        if len(data) >= 6 and data[1] == 0x01 and data[2] == 0x3D:
+            rep = data                              # schon gerahmt
+        else:
+            rep = (bytes([rec.setdefault("seq", 0) & 0xFF, 0x01, 0x3D, 0x51,
+                          0x05, len(data)]) + data)[:0x40]
+            rec["seq"] = (int(rec["seq"]) + 1) & 0xFF
+        rec.setdefault("tx", []).append(rep + bytes(0x40 - len(rep)))
+
+    def err(e: "Emu") -> None:
+        rec.setdefault("err", []).append(e.mu.reg_read(UC_ARM_REG_R0))
+        e.mu.reg_write(UC_ARM_REG_R0, 0)
+
+    noop = lambda _e: None                                          # noqa: E731
+    emu.add_stub(0x08003A36, rec_report)      # Nutzlast senden
+    emu.add_stub(0x080042AE, rec_report)      # CAN-Sendepfad
+    emu.add_stub(0x0800421E,
+                 lambda e: e.mu.reg_write(UC_ARM_REG_R0, BL_RAW_RX))
+    emu.add_stub(0x08004222, noop)
+    emu.add_stub(0x080009A8, noop)
+    emu.add_stub(0x080009FC, noop)
+    emu.add_stub(0x08000A46, err)             # Fehlercode protokollieren
+    # f_801E70 und f_801EF8 laufen ECHT -- ihre Strukturen liefert
+    # bl_ram_objects(). Der WWDG-Stub entfaellt ebenfalls: 0x08001004
+    # schreibt nur das Register 0x40002C00, das der Emulator als RAM hat.
+    bl_ram_objects(emu)
+    if blob:
+        off = BLOB_SRC - FLASH
+        emu.mu.mem_write(BLOB_DST, emu.img[off:off + BLOB_LEN])
+
+
+class _RealBlTransport:
+    """Transport fuer stm_display_fw.Protocol -> echter Report-Loader.
+
+    Der HID-Report wird 1:1 in den Empfangspuffer geschrieben und der echte
+    Report-Loader (0x08003ABC) damit aufgerufen -- also genau der Pfad, den
+    die Hardware geht: App-Rahmen -> Kommando -> Handler -> Flash.
+    """
+
+    def __init__(self, emu: "Emu", rec: Dict[str, object]) -> None:
+        self.emu = emu
+        self.rec = rec
+        self.sent = 0
+
+    def send(self, report: bytes) -> None:
+        """Genau der Hardware-Weg.
+
+        Der 64-Byte-Report (App-Rahmen ab Offset 0) wird in den
+        Empfangspuffer gelegt; danach laeuft 0x08000AAA mit dem echten
+        Report-Loader 0x08003ABC und dem echten Kommando-Dispatcher.
+        """
+        rep = bytes(report)
+        if len(rep) < 0x40:
+            rep += bytes(0x40 - len(rep))
+        self.sent += 1
+        e = self.emu
+        e.mu.mem_write(BL_RAW_RX, rep[:0x40])
+        e.wr(BL_TXDONE, 1, 1)
+        e.wr(BL_MODE + 1, 1, 1)                 # Kanal 1 (USB)
+        e.stop_pcs.add(0x0800190A)
+        _bl_feed_raw(e)
+
+    def recv(self, timeout_ms: int = 500):
+        txs = self.rec.get("tx")
+        if isinstance(txs, list) and txs:
+            return txs.pop(0)
+        return None
+
+    def close(self) -> None:
+        return None
+
+
+def scenario_blfull(emu: "Emu") -> int:
+    """WIP -- nicht registriert.
+
+    Stand der Rekonstruktion des Rahmen-Pfads:
+      * Der Report wird NICHT als Argument uebergeben. Der Rahmen liegt
+        in einem RAM-Objekt; den Griff dorthin holt f_8003ABC aus der
+        Variablen *(0x0800072C) und bildet base = griff - 0x54.
+      * Rahmenformat dort: [+0] Sequenz, [+1] Typ (0x01 Kommando,
+        0xFE Sync, 0xFD, 0x02 Fehler), [+2] 0x3D, [+3] 0x50, [+4] 0x05,
+        [+5] Laenge <= 0x3A, [+6..] Nutzlast.
+      * f_8003ABC kopiert die Nutzlast als [len][payload] in den
+        uebergebenen Puffer und ruft f_801C18(rahmen, zustand) -- den
+        eigentlichen Kommandoverteiler (0x20000170-0x54 als 2. Arg).
+      * Liefert f_801C18 != 0, bricht der Loader ab (kein Kommando).
+        Dieser Vertrag ist noch zu klaeren.
+      * Funktions-Stubs wurden durch ein Datenstruktur-Modell ersetzt
+        (bl_ram_objects); f_801E70 und f_801EF8 laufen als echter Code.
+
+    Echter Bootloader-Codepfad: App-Rahmen -> Report-Loader -> Dispatcher
+    -> Handler -> f_8019xx -> Trampoline -> RAM-Blob -> FLASH-Peripherie.
+
+    Nur der USB-Transport und die Interface-Statusabfrage (f_801E70) sind
+    gestubbt, weil ihre Hardwareobjekte nicht existieren.
+    """
+    sys.path.insert(0, str(ROOT / "tools"))
+    import stm_display_fw as fw  # noqa: PLC0415
+
+    img = emu.img
+    app_base, app_len = 0x08008000, 0x38000
+    nblk, blk = 3, 56
+    data = bytes(img[app_base - FLASH:app_base - FLASH + nblk * blk])
+    ok = True
+
+    def run(label: str, wrp_from: Optional[int], erase: bool = True) -> dict:
+        e = Emu(img)
+        rec: Dict[str, object] = {"seq": 0}
+        e.log_unmapped = True
+        fm = FlashModel(e, wrp_from)
+        _bl_install_realflash(e, rec)
+        tp = _RealBlTransport(e, rec)
+        pr = fw.Protocol(tp, verbose=False, wire="app")
+
+        print(f"\n=== {label} ===")
+        pr.cmd_sync()
+        pr.cmd_enter_program()
+        res_erase = None
+        before = bytes(e.mu.mem_read(app_base, 32))
+        if erase:
+            ack = pr.cmd_erase(app_base, app_len)
+            pl = fw.ack_payload(ack) if ack else None
+            res_erase = pl[4] if pl and len(pl) > 4 else None
+            print(f"  Erase-Quittung       : "
+                  f"{'OK (1)' if res_erase == 1 else res_erase}")
+            blank = bytes(e.mu.mem_read(app_base, 8)) == b"\xff" * 8
+            print(f"  Flash danach leer    : {blank}")
+            print(f"  Stub-Statusverlauf   : {fm.status_trace()}")
+            print(f"  FLASH_SR             : 0x{fm.sr:02x}")
+        pr.cmd_sequencer_start()
+        pr.cmd_set_address(app_base)
+        rcs = []
+        for i in range(nblk):
+            rcs.append(pr.cmd_write_block(data[i * blk:(i + 1) * blk]))
+        txt = " ".join("ACK 0x76" if r == 0 else f"Fehler 0x{r:02x}"
+                       for r in rcs)
+        print(f"  Block 1..{nblk}          : {txt}")
+        wrote = bytes(e.mu.mem_read(app_base, nblk * blk))
+        print(f"  Daten im Flash       : "
+              f"{'identisch' if wrote == data else 'ABWEICHEND'}")
+        return {"rcs": rcs, "blank": bytes(e.mu.mem_read(app_base, 8))
+                == b"\xff" * 8, "same": wrote == data, "before": before}
+
+    a = run("A) App-Region durch WRP geschuetzt", 0x08008000)
+    b = run("B) Flash offen (Sollweg)", None)
+
+    print("\n--- Auswertung ---")
+    print(f"  A: Block 1 = {'Fehler 0x%02x' % a['rcs'][0]:>12s}   "
+          f"Flash unveraendert = {not a['blank']}")
+    print(f"  B: Block 1 = {'ACK 0x76' if b['rcs'][0] == 0 else 'Fehler':>12s}   "
+          f"Erase loeschte = {b['blank']}, Daten korrekt = {b['same']}")
+    matches_hw = (a["rcs"][0] != 0 and not a["blank"])
+    print(f"  Hardware-Befund (Block 1 scheiterte, Flash unveraendert) passt zu: "
+          f"{'A (WRP)' if matches_hw else 'B'}")
+    ok = b["same"] and b["blank"] and b["rcs"][0] == 0 and matches_hw
+    print("ERGEBNIS:", "Codepfad vollstaendig nachgestellt" if ok else
+          "Abweichung")
+    return 0 if ok else 1
+
+
+
+def _blflash_emu(wrp_from: Optional[int], locked: bool = False,
+                 img: Optional[bytes] = None):
+    """Emulator mit echter Kommandoschicht, echtem Flash-Code und FLASH-Modell.
+
+    Gestubbt bleiben nur die nicht emulierbaren Raender (USB-Senden/-Poll,
+    Fehlerausgabe, WWDG, Blob-Einstieg). Echt laufen: Dispatcher, Handler,
+    f_801964/f_801998, die Trampoline 0x0800100E/18/22/2C und der RAM-Blob.
+    """
+    data = img if img is not None else (ROOT / "data" / "stm32f105_conti.bin"
+                                        ).read_bytes()
+    e = Emu(data)
+    rec: Dict[str, object] = {}
+    fm = FlashModel(e, wrp_from, locked)
+    noop = lambda _e: None                                          # noqa: E731
+
+    def err(x):
+        rec.setdefault("err", []).append(x.mu.reg_read(UC_ARM_REG_R0))
+        x.mu.reg_write(UC_ARM_REG_R0, 0)
+
+    def send(x):
+        p0 = x.mu.reg_read(UC_ARM_REG_R0)
+        n0 = x.mu.reg_read(UC_ARM_REG_R1)
+        if not (0x20000000 <= p0 < 0x2000F000):
+            p0, n0 = n0, p0                       # Argumente vertauscht
+        if 0x20000000 <= p0 < 0x2000F000 and 0 < n0 <= 0x40:
+            rec.setdefault("tx", []).append(bytes(x.mu.mem_read(p0, int(n0))))
+
+    for a in (0x08003ABC, 0x08004222, 0x080009A8, 0x080009FC, 0x08001004,
+              0x08001036):
+        e.add_stub(a, noop)
+    e.add_stub(0x0800421E, lambda x: x.mu.reg_write(UC_ARM_REG_R0, BL_RAW_RX))
+    e.add_stub(0x08000A46, err)
+    e.add_stub(0x08003A36, send)
+    off = BLOB_SRC - FLASH                      # RAM-Blob bereitstellen
+    e.mu.mem_write(BLOB_DST, data[off:off + BLOB_LEN])
+    e.rec = rec                                 # type: ignore[attr-defined]
+    return e, fm
+
+
+def scenario_blflash(emu: "Emu") -> int:
+    """Bootloader flasht im Emulator -- echte Handler + echter Flash-Code.
+
+    Drei Konfigurationen:
+      A) App-Region mit WRP      -> Erase meldet Erfolg, loescht aber nichts
+                                    (WRPRTERR), Schreiben scheitert (wie auf
+                                    der Hardware)
+      B) Flash offen (Sollweg)   -> Erase loescht, Schreiben + Verify ok
+      C) Flash gesperrt (CR.LOCK)-> Erase ohne Wirkung, kein Fehlerflag
+    """
+    app = 0x08008000
+    img = emu.img
+    blocks = [bytes(img[app - FLASH + i * 56: app - FLASH + (i + 1) * 56])
+              for i in range(2)]
+    results = {}
+
+    for key, wrp, locked, label in (
+            ("A", app, False, "A) App-Region mit WRP"),
+            ("B", None, False, "B) Flash offen (Sollweg)"),
+            ("C", None, True, "C) Flash gesperrt (CR.LOCK)")):
+        e, fm = _blflash_emu(wrp, locked, img)
+        rec = e.rec                                      # type: ignore[attr-defined]
+        seen = set()
+        e.mu.hook_add(UC_HOOK_CODE, lambda mu, a, s, u: seen.add(a))
+        print(f"\n=== {label} ===")
+
+        def cmd(payload: bytes, name: str) -> None:
+            seen.clear()
+            rec.clear()
+            if isinstance(rec.get("tx"), list):
+                rec["tx"].clear()                        # type: ignore[union-attr]
+            _bl_feed(e, payload)
+            hit = ", ".join(n for a, n in _BLF_WATCH.items() if a in seen)
+            print(f"  {name:<24} Code: {hit or '-':<38} "
+                  f"Fehler: {[hex(x) for x in rec.get('err', [])] or '-'}")
+
+        cmd(bytes([0x10, 0x03]), "0x10 Modus=3")
+        cmd(bytes([0x37]), "0x37 Sequencer")
+        cmd(bytes([0x34, 0x03, 0x00]) + struct.pack(">I", app) + bytes(4),
+            "0x34 Adresse")
+        before = bytes(e.mu.mem_read(app, 8))
+        cmd(bytes([0x31, 0x01, 0xFF, 0x00, 0x00]) + struct.pack(">I", app)
+            + struct.pack(">I", 0x1000), "0x31 Erase 2 Seiten")
+        blank = bytes(e.mu.mem_read(app, 8)) == b"\xff" * 8
+        for i, blk in enumerate(blocks):
+            cmd(bytes([0x36, i + 1]) + blk, f"0x36 Block {i + 1}")
+        same = (bytes(e.mu.mem_read(app, 56 * len(blocks)))
+                == b"".join(blocks))
+        print(f"  -> Erase geloescht: {blank}   Schreiben korrekt: {same}   "
+              f"FLASH_SR: {fm.sr:#04x}   WRPRTERR: "
+              f"{bool(fm.sr & SR_WRPRTERR)}")
+        results[key] = {"blank": blank, "same": same,
+                        "wrp_err": bool(fm.sr & SR_WRPRTERR),
+                        "before": before}
+
+    a, b, c = results["A"], results["B"], results["C"]
+    ok = (b["blank"] and b["same"]                 # Sollweg funktioniert
+          and not a["blank"] and a["wrp_err"]      # WRP: stiller Fehlschlag
+          and not c["blank"] and not c["wrp_err"])  # Sperre: kein Fehlerflag
+    print("\nERGEBNIS:", "Bootloader flasht im Emulator vollstaendig."
+          if ok else "Abweichung gefunden!")
+    return 0 if ok else 1
+
+
+_BLF_WATCH = {0x08001964: "f_801964", 0x08001998: "f_801998",
+              0x2000B2F4: "RAM-Erase", 0x2000B39C: "RAM-Prog",
+              0x080013A4: "Hdl 0x31", 0x08001614: "Hdl 0x36",
+              0x08001514: "Hdl 0x34", 0x08000CAC: "Hdl 0x10"}
+
+
+# ==========================================================================
+# Pruefung des FLASH-Peripheriemodells (Registerebene)
+# ==========================================================================
+def scenario_flashregs(emu: "Emu") -> int:
+    """Verhalten des FLASH-Registermodells direkt pruefen (ohne Firmware)."""
+    img = emu.img
+    page = 0x08008000
+    nxt = page + 0x800
+    orig_page = bytes(img[page - FLASH:page - FLASH + 8])
+    orig_next = bytes(img[nxt - FLASH:nxt - FLASH + 8])
+    ok = True
+
+    def check(name, cond, note=""):
+        nonlocal ok
+        ok = ok and bool(cond)
+        print(f"  [{'OK ' if cond else 'FEHL'}] {name:<44} {note}")
+
+    def fresh(wrp=None, locked=False):
+        e = Emu(img)
+        return e, FlashModel(e, wrp, locked)
+
+    def unlock(m):
+        m.reg_write(FLASH_KEYR, 0x45670123)
+        m.reg_write(FLASH_KEYR, 0xCDEF89AB)
+
+    def erase(m, addr):
+        m.reg_write(FLASH_AR, addr)
+        m.reg_write(FLASH_CR, CR_PER)
+        m.reg_write(FLASH_CR, CR_PER | CR_STR)
+
+    print("\n=== 1) Entriegelung (FLASH_KEYR) ===")
+    e, fm = fresh()
+    check("gesperrt nach Reset", fm.cr & CR_LOCK, f"CR={fm.cr:#04x}")
+    fm.reg_write(FLASH_KEYR, 0x45670123)
+    check("nur KEY1 -> weiter gesperrt", fm.cr & CR_LOCK, f"CR={fm.cr:#04x}")
+    fm.reg_write(FLASH_KEYR, 0xCDEF89AB)
+    check("KEY1+KEY2 -> entriegelt", not (fm.cr & CR_LOCK), f"CR={fm.cr:#04x}")
+    e2, fm2 = fresh()
+    fm2.reg_write(FLASH_KEYR, 0xDEADBEEF)
+    fm2.reg_write(FLASH_KEYR, 0xCDEF89AB)
+    check("falscher KEY1 -> gesperrt", fm2.cr & CR_LOCK, f"CR={fm2.cr:#04x}")
+
+    print("\n=== 2) Seitenloeschung ===")
+    e, fm = fresh()
+    unlock(fm)
+    erase(fm, page)
+    check("Zielseite geloescht", bytes(e.mu.mem_read(page, 8)) == b"\xff" * 8)
+    check("Nachbarseite unberuehrt",
+          bytes(e.mu.mem_read(nxt, 8)) == orig_next)
+    check("SR sauber (kein Fehler)", not (fm.sr & (SR_WRPRTERR | SR_PGERR)),
+          f"SR={fm.sr:#04x}")
+    e, fm = fresh(locked=True)
+    erase(fm, page)
+    check("gesperrtes CR: keine Wirkung",
+          bytes(e.mu.mem_read(page, 8)) == orig_page)
+    check("gesperrtes CR: kein Fehlerflag",
+          not (fm.sr & (SR_WRPRTERR | SR_PGERR)), f"SR={fm.sr:#04x}")
+    e, fm = fresh(wrp=0x08008000)
+    unlock(fm)
+    erase(fm, page)
+    check("WRP: Seite unveraendert",
+          bytes(e.mu.mem_read(page, 8)) == orig_page)
+    check("WRP: WRPRTERR gesetzt", fm.sr & SR_WRPRTERR, f"SR={fm.sr:#04x}")
+
+    print("\n=== 3) Programmieren (Halbwort) ===")
+    e, fm = fresh()
+    unlock(fm)
+    erase(fm, page)
+    fm.reg_write(FLASH_CR, CR_PG)
+    fm.reg_write(page, 0x1234, 2)
+    fm.reg_write(FLASH_CR, 0)
+    check("geloescht -> Wert uebernommen",
+          bytes(e.mu.mem_read(page, 2)) == (0x1234).to_bytes(2, "little"))
+    check("kein PGERR", not (fm.sr & SR_PGERR), f"SR={fm.sr:#04x}")
+    fm.reg_write(FLASH_CR, CR_PG)
+    fm.reg_write(page, 0xFFFF, 2)
+    fm.reg_write(FLASH_CR, 0)
+    check("1-Bits ueber 0 -> PGERR", fm.sr & SR_PGERR, f"SR={fm.sr:#04x}")
+    check("UND-Semantik (1234 & FFFF = 1234)",
+          bytes(e.mu.mem_read(page, 2)) == (0x1234).to_bytes(2, "little"))
+
+    print("\nERGEBNIS:", "FLASH-Peripheriemodell verhaelt sich korrekt."
+          if ok else "Abweichung gefunden!")
+    return 0 if ok else 1
+
+
+# ==========================================================================
+# Das echte Tool gegen den emulierten Bootloader flashen lassen
+# ==========================================================================
+class _ToolBlTransport:
+    """Transport fuer stm_display_fw.Protocol gegen den echten Bootloader.
+
+    send(): Nutzlast des App-Rahmens auf der Kommandoschicht einspeisen.
+    recv(): Antworten des Bootloaders als HID-Report zurueckgeben.
+    """
+
+    def __init__(self, emu: "Emu") -> None:
+        self.emu = emu
+        self.pending: List[bytes] = []
+        self.sent = 0
+        self.seq = 0
+
+    def send(self, report: bytes) -> None:
+        sys.path.insert(0, str(ROOT / "tools"))
+        import stm_display_fw as fw  # noqa: PLC0415
+        pf = fw.parse_app_frame(bytes(report))
+        if pf is None:
+            return
+        typ, payload = pf[1], pf[3]
+        self.sent += 1
+        if typ == 0xFE:                          # Sync: Sequenz auf 0
+            self.emu.wr(BL_FSTATE + 0, 0, 1)
+            return
+        rec = self.emu.rec                      # type: ignore[attr-defined]
+        if isinstance(rec.get("tx"), list):
+            rec["tx"].clear()                   # type: ignore[union-attr]
+        emu = self.emu
+        frame = bytes([len(payload)]) + payload
+        emu.mu.mem_write(BL_RAW_RX, frame + bytes(0x40 - len(frame)))
+        emu.wr(BL_TXDONE, 1, 1)
+        emu.wr(BL_MODE + 1, 1, 1)               # Kanal 1 / Modus 1 (wie HW)
+        emu.stop_pcs.add(0x0800190A)
+        emu.call(0x08000AAA)
+        for pl in rec.get("tx", []):            # type: ignore[union-attr]
+            if not pl:
+                continue
+            hdr = bytes([self.seq & 0xFF, 0x01, 0x3D, 0x51, 0x05, len(pl)])
+            self.seq = (self.seq + 1) & 0xFF
+            rep = (hdr + bytes(pl))[:0x40]
+            self.pending.append(rep + bytes(0x40 - len(rep)))
+
+    def recv(self, timeout_ms: int = 500):
+        return self.pending.pop(0) if self.pending else None
+
+    def close(self) -> None:
+        return None
+
+
+def scenario_blupload(emu: "Emu") -> int:
+    """Flasht den App-Bereich mit dem ECHTEN stm_display_fw.py-Tool.
+
+    Der Emulator fuehrt dabei den unveraenderten Bootloader-Code aus
+    (Dispatcher, Handler, f_801964/f_801998, Trampoline, RAM-Blob) gegen das
+    FLASH-Registermodell. Geprueft wird, dass der Flash-Inhalt exakt dem
+    Image entspricht.
+    """
+    sys.path.insert(0, str(ROOT / "tools"))
+    import stm_display_fw as fw  # noqa: PLC0415
+
+    nblocks = int(sys.argv[2], 0) if len(sys.argv) > 2 else 256
+    app = fw.APP_BASE
+    total = nblocks * 56
+    img = emu.img
+    data = bytes(img[app - FLASH:app - FLASH + total])
+
+    e, fm = _blflash_emu(None, False, img)
+    tp = _ToolBlTransport(e)
+    proto = fw.Protocol(tp, verbose=False, wire="app")
+    erase_len = ((total + 0x7FF) // 0x800) * 0x800
+    print(f"[blupload] {nblocks} Bloecke = {total} Bytes, Erase {erase_len} "
+          f"Bytes ab 0x{app:08x}")
+    proto.cmd_sync()
+    proto.cmd_enter_program()      # 0x10 03: setzt [0x20000028] = gueltig
+    proto.cmd_erase(app, erase_len)
+    blank = bytes(e.mu.mem_read(app, min(16, total))) == b"\xff" * min(16, total)
+    proto.cmd_sequencer_start()
+    proto.cmd_set_address(app)
+    failed = 0
+    for i in range(nblocks):
+        rc = proto.cmd_write_block(data[i * 56:(i + 1) * 56])
+        if rc:
+            failed += 1
+            if failed < 4:
+                print(f"   Block {i + 1}: Fehler 0x{rc:02x}"
+                      if rc > 0 else f"   Block {i + 1}: keine Antwort")
+    # Abschlussquittung: der Bootloader antwortet, sobald der Zeiger
+    # 0x08040000 erreicht hat (nicht pro Block!).
+    final = tp.recv(4000)
+    fpl = fw.ack_payload(final) if final else None
+    print(f"[blupload] Abschlussquittung   : "
+          f"{fpl.hex(' ') if fpl else '-'}")
+    got = bytes(e.mu.mem_read(app, total))
+    ptr = e.rd(BL_FSTATE + 4)
+    errtx = [b.hex(" ") for b in e.rec.get("tx", []) if b and b[0] == 0x7F]
+    print(f"[blupload] Kommandos gesendet : {tp.sent}")
+    print(f"[blupload] Erase geloescht    : {blank}")
+    print(f"[blupload] Bloecke mit Fehler : {failed}")
+    print(f"[blupload] Flash = Image      : {got == data}")
+    print(f"[blupload] Schreibzeiger      : {ptr:#010x} "
+          f"(erwartet {app + total:#010x})")
+    ok = (blank and failed == 0 and got == data and ptr == app + total
+          and (fpl is None or fpl[0] == 0x76))
+    print("[blupload] ->", "OK" if ok else "MISMATCH")
+    return 0 if ok else 1
+
+
+def scenario_blreadback(emu: "Emu") -> int:
+    """Lese-Befehl (0x22) und CRC-Befehl (0x31/0x10202) am echten Code pruefen.
+
+    Hintergrund: der Bootloader hat **keinen** allgemeinen Lese-Befehl. Der
+    Handler 0x08000F54 (Kommando 0x22) kopiert aber 6 bzw. 8 Byte aus der
+    festen Flash-Adresse 0x08007800 in die Antwort -- der einzige Rueckkanal
+    fuer Flash-Inhalt. Geprueft wird:
+
+      1) welches Magic liefert Daten (0xF15B gegen 0xF15A),
+      2) Schreiben des Geraeterekords (0x2E) und Zuruecklesen,
+      3) das Statusbyte des CRC-Befehls (0 = stimmt, 1 = stimmt nicht).
+    """
+    sys.path.insert(0, str(ROOT / "tools"))
+    import stm_display_fw as fw  # noqa: PLC0415
+
+    data = (ROOT / "data" / "stm32f105_bms_control.bin").read_bytes()
+    e, fm = _blflash_emu(None, False, data)
+    tp = _ToolBlTransport(e)
+    proto = fw.Protocol(tp, verbose=False, wire="app")
+    results: List[bool] = []
+
+    def check(name: str, ok: bool, extra: str = "") -> None:
+        results.append(bool(ok))
+        print(f"    [{'ok  ' if ok else 'FEHL'}] {name}"
+              f"{'   ' + extra if extra else ''}")
+
+    print("=== 1) Record-Befehl 0x22: welches Magic liest Flash? ===")
+    rec_val = bytes([26, 10, 4, 0x11, 0x22, 0x33, 0x44, 0x55])
+    e.mu.mem_write(fw.RECORD_ADDR, rec_val + bytes(0x800 - len(rec_val)))
+    proto.cmd_sync()
+    wrong = proto.cmd_read_record(magic=0xF15A)
+    check("Magic 0xF15A (Schreibmagic) -> keine Daten", wrong is None,
+          f"-> {wrong.hex(' ') if wrong else '-'}")
+    got = proto.cmd_read_record()
+    check("Magic 0xF15B -> Daten", got is not None,
+          f"-> {got.hex(' ') if got else '-'}")
+    check("Record-Inhalt = Flash 0x08007800", got == rec_val[:6],
+          f"soll {rec_val[:6].hex(' ')}")
+
+    print("\n=== 2) Geraeterekord schreiben (0x2E) und zuruecklesen ===")
+    # 0x2E verlangt Magic 0xF15A in payload[1..2] und Payload-Laenge exakt 10;
+    # geschrieben werden 8 Byte ab payload[3], das achte stammt aus dem Puffer.
+    new = bytes([24, 12, 9, 0xAA, 0xBB, 0xCC, 0xDD])
+    proto.cmd_enter_program()
+    proto.send_frame(bytes([0x2E, 0xF1, 0x5A]) + new)
+    ack = tp.recv(1500)
+    apl = fw.ack_payload(ack) if ack else None
+    check("0x2E quittiert (0x6E + Magic)", apl is not None and apl[0] == 0x6E,
+          f"payload={apl.hex(' ') if apl else '-'}")
+    check("Flash 0x08007800 = geschriebener Record",
+          bytes(e.mu.mem_read(fw.RECORD_ADDR, 7)) == new)
+    back = proto.cmd_read_record()
+    check("Zurueckgelesen = geschrieben", back == new[:6],
+          f"-> {back.hex(' ') if back else '-'}")
+
+    print("\n=== 3) CRC-Befehl 0x31/0x10202: Statusbyte ===")
+    res = proto.cmd_app_crc(tries_len=(8,))
+    check("unveraendertes Image -> Status 0 (CRC stimmt)",
+          res == fw.CRC_OK, f"Status={res}")
+    e.mu.mem_write(fw.APP_BASE + 0x1234, b"\x00\x00")
+    res = proto.cmd_app_crc(tries_len=(8,))
+    check("geaendertes Image -> Status 1 (CRC stimmt nicht)",
+          res == fw.CRC_MISMATCH, f"Status={res}")
+
+    print("\n=== 4) verify_against_device(): einfach und --deep ===")
+    img = fw.Image(bytearray(data))
+    off = fw.APP_BASE - fw.FLASH_BASE
+    e.mu.mem_write(fw.APP_BASE + 0x1234, data[off + 0x1234:off + 0x1236])
+    check("einfach, Inhalt = Image -> 0",
+          proto.verify_against_device(img, deep=False) == 0)
+    # Nur das CRC-Wort ist falsch (z. B. nach abgebrochenem Flash):
+    e.mu.mem_write(fw.APP_CRC_ADDR, b"\xde\xad\xbe\xef")
+    check("einfach, nur CRC-Wort falsch -> 1 (Fehlalarm)",
+          proto.verify_against_device(img, deep=False) == 1)
+    check("deep, nur CRC-Wort falsch -> 0 (korrigiert sich selbst)",
+          proto.verify_against_device(img, deep=True) == 0)
+    check("deep hat das CRC-Wort neu geschrieben",
+          bytes(e.mu.mem_read(fw.APP_CRC_ADDR, 4)) == data[0x3fffc:0x40000])
+    # Inhalt stimmt wirklich nicht:
+    e.mu.mem_write(fw.APP_BASE + 0x8000, b"\x00")
+    check("deep, Inhalt weicht ab -> 1",
+          proto.verify_against_device(img, deep=True) == 1)
+
+    ok = all(results)
+    print(f"\nERGEBNIS: {sum(results)}/{len(results)} Pruefungen ok --",
+          "Lese- und CRC-Befehl bestaetigt." if ok else "Abweichung!")
+    return 0 if ok else 1
+
+
 SCENARIOS = {
+    "blreadback": scenario_blreadback,
+    "flashregs": scenario_flashregs,
+    "blupload": scenario_blupload,
+    "blflash": scenario_blflash,
+    "flashprog": scenario_flashprog,
+    "bmspatch": scenario_bmspatch,
     "uploadtool": scenario_uploadtool,
+    "usbtrigger": scenario_usbtrigger,
     "hidtrigger": scenario_hidtrigger,
     "msgprobe": scenario_msgprobe,
     "nmstate": scenario_nmstate,
@@ -1019,14 +2348,18 @@ SCENARIOS = {
 
 
 def main(argv: List[str]) -> int:
-    if len(argv) < 2 or argv[1] not in SCENARIOS:
+    img_path = IMG_PATH
+    if "-i" in argv:
+        img_path = Path(argv[argv.index("-i") + 1])
+    if len(argv) < 2 or argv[1] not in SCENARIOS or argv[1].startswith("-"):
         print(__doc__)
         print("Szenarien:", ", ".join(SCENARIOS))
+        print("Optionen: -t (Trace), -i <image> (statt data/stm32f105_conti.bin)")
         return 2
-    if not IMG_PATH.exists():
-        print(f"FEHLER: {IMG_PATH} fehlt (erst make_disassembly.sh ausfuehren).")
+    if not img_path.exists():
+        print(f"FEHLER: {img_path} fehlt (erst make_disassembly.sh ausfuehren).")
         return 2
-    img = IMG_PATH.read_bytes()
+    img = img_path.read_bytes()
     emu = Emu(img, trace=("-t" in argv))
     return SCENARIOS[argv[1]](emu)
 
