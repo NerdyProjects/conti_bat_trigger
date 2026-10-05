@@ -15,5 +15,7 @@
  *   GET  /api/can/frames     — Latest value/count per distinct CAN ID
  *   GET  /api/can/log        — Chronological log; ?since=<seq>&max=<n>
  *   POST /api/can/log/clear  — Discard all logged CAN messages
+ *   GET  /update             — OTA firmware upload page
+ *   POST /update             — OTA upload endpoint (raw firmware body)
  */
 void webserver_init(void);

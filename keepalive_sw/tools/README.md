@@ -23,6 +23,11 @@ Ergebnis des Patches: Das Display sendet die CAN-Botschaft `0x555`
 | `tools/99-continental-ebike.rules` | udev-Regel für USB-Zugriff ohne `root` (Linux) |
 | `docs/` | Hintergrund: Patchliste, Firmware-Update-Analyse |
 | `patch.sh`, `flash.sh` | Kurzbefehle für die beiden Schritte |
+| `esp32/keepalive_sw_supermini.bin`, `esp32/keepalive_sw_oled.bin` | ESP32-C3 App-Images je Hardware-Variante (Web-OTA) |
+| `esp32/bootloader.bin`, `esp32/partition-table.bin`, `esp32/ota_data_initial.bin` | ESP32-C3 Bestandteile für den USB-Flash |
+| `flash_ota.py` | ESP32 per WiFi/Web-OTA aktualisieren |
+| `flash_esp32_usb.sh` | ESP32 per USB flashen (esptool) |
+| `idf_env.sh` | Hilfsbibliothek: ESP-IDF-Umgebung finden (von den ESP-Skripten genutzt) |
 
 ## 0. Kurzfassung - vorgefertigtes Teil flashen
 ```bash
@@ -203,4 +208,66 @@ war `0x14` = 20 °C).
 Die BLE-Adresse ist eine Zufallsadresse und kann sich nach jedem Neustart
 ändern → Standard ist Scannen über den Namen. Mit `--address`, `--service`
 und `--char` lässt sich alles fest vorgeben.
+
+## 7. ESP32-C3 Keepalive-Firmware (`keepalive_sw`)
+
+Zusätzlich liegen die Firmware-Images des ESP32-C3-Controllers im Paket – je
+Hardware-Variante eines (`supermini` und `oled`). Die Firmware hält den Akku
+per CAN-Keepalive wach und öffnet einen WiFi-Zugangspunkt mit
+Debug-Weboberfläche (`http://192.168.4.1`). Zugangsdaten:
+SSID **`AkkuController`**, Passwort **`akku1234`**.
+
+### 7.1 Web-OTA-Update (empfohlen)
+
+Rechner mit dem AP `AkkuController` verbinden und das passende Image hochladen:
+
+```bash
+./flash_ota.py                  # SuperMini (Standard)
+./flash_ota.py --variant oled   # OLED-Variante
+./flash_ota.py --wait 120       # bis zu 2 min auf das Gerät warten
+./flash_ota.py --bin esp32/keepalive_sw_oled.bin
+```
+
+Das Skript lädt an `/update` hoch, wartet auf den automatischen Neustart und
+prüft über `/api/status`, dass die neue Firmware läuft. Alternativ geht das
+im Browser über `http://192.168.4.1/update`.
+
+### 7.2 USB-Flash (Erstinbetriebnahme / Recovery)
+
+Komplett ohne Werkzeug geht es nicht: Der ESP32-C3 hat zwar einen
+USB-Bootloader im ROM, er spricht aber das esptool-Protokoll. Für Updates im
+laufenden Betrieb ist Web-OTA (7.1) der bequemere Weg.
+
+```bash
+./flash_esp32_usb.sh                              # /dev/ttyACM0, SuperMini
+./flash_esp32_usb.sh /dev/ttyACM0 --variant oled  # OLED-Variante
+./flash_esp32_usb.sh /dev/ttyUSB0 115200
+```
+
+Voraussetzung ist `esptool` (aus einer aktivierten ESP-IDF-Umgebung oder im
+`PATH`; `ESPTOOL` kann es explizit vorgeben). Geflasht werden Bootloader
+(`0x0`), Partitionstabelle (`0x8000`), OTA-Daten (`0xd000`) und Applikation
+(`0x10000`); die Bootloader-/Partitionsteile sind für beide Varianten gleich.
+
+### 7.3 Firmware selbst bauen
+
+```bash
+tools/build_esp32.sh                  # beide Varianten -> build_supermini/, build_oled/
+tools/build_esp32.sh --variant oled   # nur eine Variante (supermini|oled)
+```
+
+Die Variante steckt in `CONFIG_HW_VARIANT_{SUPERMINI,OLED}`. Das Skript legt
+je Variante eine eigene `sdkconfig` im Build-Verzeichnis an (Basis ist die
+Projekt-`sdkconfig`); die Projekt-`sdkconfig` selbst bleibt unangetastet.
+Ergebnis u.a. `build_<variante>/keepalive_sw.bin` – genau dieses Image
+erwartet `flash_ota.py`. Das komplette Release-Paket bauen:
+
+```bash
+tools/build_dist.sh            # alles, inkl. beide ESP32-Varianten
+tools/build_dist.sh --no-esp   # nur STM32-Teil, kein ESP-IDF nötig
+```
+
+Die ESP-IDF-Umgebung wird entweder aus `IDF_PATH`/`IDF_PYTHON_ENV_PATH`
+übernommen oder automatisch aus `~/.espressif/tools/activate_idf_v*.sh`
+(EIM) geladen.
 

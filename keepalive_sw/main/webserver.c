@@ -263,6 +263,8 @@ extern const uint8_t index_html_end[] asm("_binary_ota_html_end");
 
 esp_err_t index_get_handler(httpd_req_t *req)
 {
+	httpd_resp_set_type(req, "text/html");
+	httpd_resp_set_hdr(req, "Cache-Control", "no-store");
 	httpd_resp_send(req, (const char *) index_html_start, index_html_end - index_html_start);
 	return ESP_OK;
 }
@@ -277,7 +279,17 @@ esp_err_t update_post_handler(httpd_req_t *req)
 	int remaining = req->content_len;
 
 	const esp_partition_t *ota_partition = esp_ota_get_next_update_partition(NULL);
-	ESP_ERROR_CHECK(esp_ota_begin(ota_partition, OTA_SIZE_UNKNOWN, &ota_handle));
+	if (ota_partition == NULL) {
+		httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No OTA partition");
+		return ESP_FAIL;
+	}
+
+	esp_err_t err = esp_ota_begin(ota_partition, OTA_SIZE_UNKNOWN, &ota_handle);
+	if (err != ESP_OK) {
+		ESP_LOGE(TAG, "esp_ota_begin failed: %s", esp_err_to_name(err));
+		httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA begin failed");
+		return ESP_FAIL;
+	}
 
 	while (remaining > 0) {
 		int recv_len = httpd_req_recv(req, buf, MIN(remaining, sizeof(buf)));
@@ -286,14 +298,16 @@ esp_err_t update_post_handler(httpd_req_t *req)
 		if (recv_len == HTTPD_SOCK_ERR_TIMEOUT) {
 			continue;
 
-		// Serious Error: Abort OTA
+		// Serious Error: Abort OTA (frees the handle/partition state)
 		} else if (recv_len <= 0) {
+			esp_ota_abort(ota_handle);
 			httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Protocol Error");
 			return ESP_FAIL;
 		}
 
 		// Successful Upload: Flash firmware chunk
 		if (esp_ota_write(ota_handle, (const void *)buf, recv_len) != ESP_OK) {
+			esp_ota_abort(ota_handle);
 			httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Flash Error");
 			return ESP_FAIL;
 		}
@@ -302,9 +316,13 @@ esp_err_t update_post_handler(httpd_req_t *req)
 	}
 
 	// Validate and switch to new OTA image and reboot
-	if (esp_ota_end(ota_handle) != ESP_OK || esp_ota_set_boot_partition(ota_partition) != ESP_OK) {
-			httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Validation / Activation Error");
-			return ESP_FAIL;
+	if (esp_ota_end(ota_handle) != ESP_OK) {
+		httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Validation Error");
+		return ESP_FAIL;
+	}
+	if (esp_ota_set_boot_partition(ota_partition) != ESP_OK) {
+		httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Activation Error");
+		return ESP_FAIL;
 	}
 
 	httpd_resp_sendstr(req, "Firmware update complete, rebooting now!\n");
@@ -322,7 +340,7 @@ esp_err_t update_post_handler(httpd_req_t *req)
 void webserver_init(void)
 {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
-    cfg.stack_size = 6144;
+    cfg.stack_size = 8192;
     cfg.max_uri_handlers = 16;
 
     static const httpd_uri_t uris[] = {

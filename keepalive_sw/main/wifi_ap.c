@@ -92,7 +92,7 @@ void wifi_ap_init(void)
     ESP_LOGI(TAG, "esp_wifi_start: %s", esp_err_to_name(err));
     ESP_ERROR_CHECK(err);
     
-    esp_wifi_set_max_tx_power(8);
+    esp_wifi_set_max_tx_power(16);
     esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW20);
 
     ESP_LOGI(TAG, "AP started  SSID=\"%s\"  IP=192.168.4.1", WIFI_AP_SSID);

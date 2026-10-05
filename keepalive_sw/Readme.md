@@ -14,6 +14,43 @@ CONFIG_HW_VARIANT_OLED=y
 
 Die SW macht einen WiFi-AP mit einer Debug-Webschnittstelle auf. Die Zugangsdaten können unter wifi_ap.h konfiguriert werden.
 
+### ESP32-Firmware bauen
+
+```bash
+tools/build_esp32.sh                  # beide Varianten -> build_supermini/ und build_oled/
+tools/build_esp32.sh --variant oled   # nur eine Variante (supermini|oled)
+```
+
+Die Hardware-Variante steckt in `CONFIG_HW_VARIANT_{SUPERMINI,OLED}`. Das
+Skript legt je Variante eine eigene sdkconfig im Build-Verzeichnis an; die
+Projekt-`sdkconfig` bleibt unangetastet.
+
+### Update über WiFi (Web-OTA)
+
+Der ESP32 öffnet den AP `AkkuController` (Passwort `akku1234`). Rechner mit
+dem AP verbinden, dann:
+
+```bash
+tools/flash_ota.py                    # SuperMini (Standard)
+tools/flash_ota.py --variant oled     # OLED-Variante
+```
+
+Im Browser geht es auch: `http://192.168.4.1` → „OTA-Update hochladen"
+(`/update`).
+
+### Firmware per USB flashen
+
+Der ESP32-C3 hat einen USB-Bootloader im ROM, zum Flashen ist aber `esptool`
+nötig (aus der ESP-IDF-Umgebung oder im `PATH`):
+
+```bash
+tools/flash_esp32_usb.sh /dev/ttyACM0                    # SuperMini
+tools/flash_esp32_usb.sh /dev/ttyACM0 --variant oled     # OLED
+```
+
+`tools/build_dist.sh` baut STM32- und ESP32-Teil (beide Varianten) in ein
+Release-Paket (`--no-esp` überspringt den ESP32-Build).
+
 ### Display-Akku aktualisieren (ein Befehl)
 
 ```bash

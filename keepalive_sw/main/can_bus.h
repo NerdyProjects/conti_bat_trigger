@@ -71,6 +71,10 @@ void can_bus_init(void);
 
 /**
  * @brief Transmit one keepalive frame: ID 0x201, payload [0, 1, 0, 0].
+ *
+ * Best-effort (non-blocking) transmit: safe to call from the periodic
+ * esp_timer callback. Returns ESP_ERR_TIMEOUT if the TX queue is full.
+ *
  * @return ESP_OK on success.
  */
 esp_err_t can_send_keepalive(void);
@@ -95,6 +99,9 @@ bool can_get_periodic_send(void);
 
 /**
  * @brief Transmit one user test frame: ID 0x55, DLC 1, payload [1].
+ *
+ * Best-effort (non-blocking) transmit; see can_send_keepalive().
+ *
  * @return ESP_OK on success.
  */
 esp_err_t can_send_55(void);

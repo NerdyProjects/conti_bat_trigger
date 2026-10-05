@@ -227,7 +227,7 @@ static void wake_trigger_task(void *arg)
 
 void wake_trigger_init(void)
 {
-    xTaskCreate(wake_trigger_task, "wake_trigger", 2048, NULL, 4, NULL);
+    xTaskCreate(wake_trigger_task, "wake_trigger", 3072, NULL, 4, NULL);
 }
 
 wake_mode_t wake_trigger_get_mode(void)

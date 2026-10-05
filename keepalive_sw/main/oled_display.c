@@ -312,7 +312,7 @@ void oled_display_init(void)
     fb_clear();
     esp_lcd_panel_draw_bitmap(s_panel, 0, 0, OLED_WIDTH, OLED_HEIGHT, s_fb);
 
-    xTaskCreate(oled_task, "oled", 2048, NULL, 3, NULL);
+    xTaskCreate(oled_task, "oled", 3072, NULL, 3, NULL);
     ESP_LOGI(TAG, "SSD1306 72x40 ready (esp_lcd) SDA=%d SCL=%d",
              OLED_SDA_PIN, OLED_SCL_PIN);
 }

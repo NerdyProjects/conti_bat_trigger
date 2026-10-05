@@ -13,9 +13,10 @@
 #include "freertos/task.h"
 
 /**
- * @brief Sample the analog vehicle inputs at a fixed rate and append them to
- *        the CAN log so the "12 V half-on" and "35-42 V on" states can be
+ * @brief Append the last cached analog vehicle inputs to the CAN log at a
+ *        fixed rate so the "12 V half-on" and "35-42 V on" states can be
  *        correlated with the CAN traffic in the /canlog viewer.
+ *        The ADC itself is sampled by adc_meas' background task.
  *        Payload: wakeup-detect, Vbat, CAN-shutdown (all millivolts, LE).
  */
 static void telemetry_task(void *arg)

@@ -16,20 +16,24 @@
 #endif
 
 /**
- * @brief Initialize ADC unit and calibration.
+ * @brief Initialize ADC unit and calibration and start the sampling task.
  *        GPIO0 (Vbat) and GPIO4 (WakeupDetect) on both variants.
  *        GPIO3 (CAN_Shutdown) only on SuperMini.
+ *
+ * All conversions are performed by a single background task which caches the
+ * results; the adc_get_*() accessors below only read that cache and never
+ * touch the ADC hardware, so they are cheap and safe to call from any task.
  */
 void adc_meas_init(void);
 
 /**
- * @brief Read battery voltage at GPIO0 (direct: Vbat = Vmeas * 1033/33).
+ * @brief Latest cached battery voltage at GPIO0 (Vbat = Vmeas * 1033/33).
  * @return Actual battery voltage [V].
  */
 float adc_get_vbat_voltage(void);
 
 /**
- * @brief Read Wakeup-Detect voltage (GPIO4, scaled by divider 1033/33).
+ * @brief Latest cached Wakeup-Detect voltage (GPIO4, divider 1033/33).
  * @return Actual signal voltage [V].
  */
 float adc_get_wakeup_detect_voltage(void);
@@ -41,7 +45,7 @@ int adc_get_vbat_percent(void);
 static inline float adc_get_can_shutdown_voltage(void) { return 0.0f; }
 #else
 /**
- * @brief Read voltage at CAN_SHUTDOWN pin (GPIO3, SuperMini only).
+ * @brief Latest cached voltage at CAN_SHUTDOWN pin (GPIO3, SuperMini only).
  * @return Pin voltage [V].
  */
 float adc_get_can_shutdown_voltage(void);

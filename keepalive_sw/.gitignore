@@ -19,6 +19,8 @@
 # Build artifacts and directories
 **/build/
 build/
+# variant-specific ESP32 build dirs (build_esp32.sh)
+build_*/
 *.o
 *.a
 *.out

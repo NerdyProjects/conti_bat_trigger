@@ -13,6 +13,14 @@
 
 #define RX_QUEUE_LEN 10
 
+/*
+ * Periodic frames are transmitted from an esp_timer callback, and timer
+ * callbacks must never block: doing so stalls every other esp_timer callback.
+ * A zero timeout makes the transmit best-effort - if the driver queue is
+ * momentarily full the beat is skipped, and the next one follows shortly.
+ */
+#define CAN_TX_TIMEOUT_MS 0
+
 /* Internal message type passed from ISR callback to receive task */
 typedef struct {
     twai_frame_header_t header;
@@ -291,7 +299,7 @@ esp_err_t can_send_keepalive(void)
         .buffer     = tx_buf,
         .buffer_len = 4,
     };
-    esp_err_t err = twai_node_transmit(s_node, &frame, 10);
+    esp_err_t err = twai_node_transmit(s_node, &frame, CAN_TX_TIMEOUT_MS);
     if (err == ESP_OK) {
         log_add(CAN_ID_KEEPALIVE, 4, tx_buf, true, esp_timer_get_time());
     }
@@ -309,7 +317,7 @@ esp_err_t can_send_55(void)
         .buffer     = tx_buf,
         .buffer_len = 1,
     };
-    esp_err_t err = twai_node_transmit(s_node, &frame, 10);
+    esp_err_t err = twai_node_transmit(s_node, &frame, CAN_TX_TIMEOUT_MS);
     if (err == ESP_OK) {
         log_add(CAN_ID_TEST55, 1, tx_buf, true, esp_timer_get_time());
     }
