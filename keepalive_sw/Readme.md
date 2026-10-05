@@ -86,3 +86,18 @@ python3 tools/stm_display_fw.py verify data/stm32f105_bms_control.bin --deep -y
   Lese-Befehl (10 Kommandos, alle schreiben/steuern; Antworten tragen nur
   Status). Die Record-Seite bei `0x08007800` ist die einzige auslesbare
   Flash-Adresse. Inhaltskontrolle erfolgt daher über `verify`.
+
+### Release-Paket bauen (`dist/`)
+
+`dist/` ist per `.gitignore` ausgenommen und wird aus den Repo-Quellen
+erzeugt:
+
+```bash
+tools/build_dist.sh
+```
+
+Ergebnis: `dist/cebs_display_bms_patch/` und `dist/cebs_display_bms_patch.zip`.
+Das Skript sammelt die Werkzeuge aus `tools/`, Doku und Firmware aus `data/`
+und legt sie passend ab. Die Paket-Wurzeldateien `patch.sh`, `flash.sh`,
+`requirements.txt` und die Paket-`README.md` liegen als Quellen ebenfalls in
+`tools/`.

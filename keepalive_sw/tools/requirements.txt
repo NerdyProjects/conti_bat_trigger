@@ -1,0 +1,20 @@
+# Python-Abhaengigkeiten fuer das Patch-/Flash-Paket
+# Installation:  python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
+
+# --- Flashen (tools/stm_display_fw.py) -------------------------------------
+# Liefert das Modul "hid" (hidapi). Zugriff auf den HID-Knoten per hidraw.
+# Falls pip aus dem Quelltext baut (kein Wheel): sudo apt install build-essential libusb-1.0-0-dev libudev-dev
+hidapi>=0.14.0
+
+# --- Nur fuer den Emulator (tools/emu.py) ----------------------------------
+# Hardware-unabhaengige Kontrolle von Patch und Flashweg.
+unicorn>=2.1.0
+
+# --- BLE-Telemetrie (tools/cebs_ble.py) ------------------------------------
+# Zugriff per Bluetooth Low Energy (BlueZ/D-Bus) auf das "CEBS"-Display.
+bleak>=0.22.0
+
+# --- Optional ---------------------------------------------------------------
+# capstone wird fuer Disassembly-Ausgaben im Emulator automatisch erkannt;
+# ohne capstone laufen alle Szenarien trotzdem.
+# capstone>=5.0.1
