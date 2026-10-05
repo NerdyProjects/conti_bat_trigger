@@ -92,6 +92,7 @@ void wifi_ap_init(void)
     ESP_LOGI(TAG, "esp_wifi_start: %s", esp_err_to_name(err));
     ESP_ERROR_CHECK(err);
     
+    /* Warning: ESP Supermini has an antenna problem! Do not increase this over 32, especially when no USB flash access! */
     esp_wifi_set_max_tx_power(16);
     esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW20);
 
