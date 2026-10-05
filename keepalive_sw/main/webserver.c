@@ -50,7 +50,7 @@ static esp_err_t handler_status(httpd_req_t *req)
     float bat_age_s  = bat.data_valid     ? (float)(now_us - bat.last_rx_us)  / 1e6f : -1.0f;
     float x1b2_age_s = x1b2.ever_received ? (float)(now_us - x1b2.last_rx_us) / 1e6f : -1.0f;
 
-    char buf[704];
+    char buf[896];
     int len = snprintf(buf, sizeof(buf),
         "{"
         "\"boot_btn\":%s,"
@@ -65,6 +65,9 @@ static esp_err_t handler_status(httpd_req_t *req)
         "\"bat_current\":%d,"
         "\"bat_voltage\":%u,"
         "\"bat_soc\":%u,"
+        "\"bat_soh\":%u,"
+        "\"bat_remaining_mah\":%u,"
+        "\"bat_full_mah\":%u,"
         "\"bat_data_valid\":%s,"
         "\"bat_last_age_s\":%.2f,"
         "\"bat_rate_hz\":%.2f,"
@@ -83,6 +86,9 @@ static esp_err_t handler_status(httpd_req_t *req)
         (int)bat.current_raw,
         (unsigned)bat.voltage_raw,
         (unsigned)bat.soc_percent,
+        (unsigned)bat.soh_percent,
+        (unsigned)bat.remaining_mah,
+        (unsigned)bat.full_mah,
         bat.data_valid           ? "true" : "false",
         bat_age_s,
         bat.rate_hz,

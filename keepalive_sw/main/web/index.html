@@ -39,11 +39,14 @@ h2{margin:0 0 10px;color:#455a64;font-size:.9em;text-transform:uppercase;letter-
 </div>
 
 <div class="card">
-<h2>Batterie (CAN 0x404)</h2>
+<h2>Batterie (CAN 0x404/0x405)</h2>
 <div class="row">
 <div class="item"><div class="lbl">Strom (raw)</div><div class="val" id="cur">-</div></div>
 <div class="item"><div class="lbl">Spannung (raw)</div><div class="val" id="vol">-</div></div>
 <div class="item"><div class="lbl">SOC</div><div class="val" id="soc">-</div></div>
+<div class="item"><div class="lbl">SOH</div><div class="val" id="soh">-</div></div>
+<div class="item"><div class="lbl">Restkapazit&auml;t</div><div class="val" id="rem">-</div></div>
+<div class="item"><div class="lbl">Vollkapazit&auml;t</div><div class="val" id="full">-</div></div>
 <div class="item"><div class="lbl">Letztes Paket</div><div class="val" id="bage">-</div></div>
 <div class="item"><div class="lbl">Rate</div><div class="val" id="brate">-</div></div>
 </div></div>
@@ -117,10 +120,16 @@ async function poll(){
       document.getElementById('cur').textContent=st.bat_current;
       document.getElementById('vol').textContent=st.bat_voltage;
       document.getElementById('soc').textContent=st.bat_soc+'%';
+      document.getElementById('soh').textContent=st.bat_soh+'%';
+      document.getElementById('rem').textContent=st.bat_remaining_mah+'\u202fmAh';
+      document.getElementById('full').textContent=st.bat_full_mah+'\u202fmAh';
     }else{
       document.getElementById('cur').textContent='\u2014';
       document.getElementById('vol').textContent='\u2014';
       document.getElementById('soc').textContent='\u2014';
+      document.getElementById('soh').textContent='\u2014';
+      document.getElementById('rem').textContent='\u2014';
+      document.getElementById('full').textContent='\u2014';
     }
     document.getElementById('bage').textContent=fmtAge(st.bat_last_age_s);
     document.getElementById('brate').textContent=fmtHz(st.bat_rate_hz,st.bat_data_valid);

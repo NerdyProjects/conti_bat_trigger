@@ -10,7 +10,8 @@
 #define PIN_CAN_STANDBY  21   /**< Transceiver standby: High=listen, Low=active */
 
 /* CAN message IDs */
-#define CAN_ID_BATTERY    0x404U  /**< RX: battery status             */
+#define CAN_ID_BATTERY    0x404U  /**< RX: battery status (I, U, SOC, SOH)   */
+#define CAN_ID_BATTERY_CAP 0x405U /**< RX: battery capacity (Remaining/Full)  */
 #define CAN_ID_1B2        0x1B2U  /**< RX: counted frame              */
 #define CAN_ID_KEEPALIVE  0x201U  /**< TX: keepalive [0, 1, 0, 0]     */
 #define CAN_ID_TEST55     0x555U  /**< TX: user test frame [1]        */
@@ -42,15 +43,22 @@ typedef struct {
 } can_log_entry_t;
 
 /**
- * @brief Battery data decoded from CAN frame 0x404 (little-endian).
+ * @brief Battery data decoded from BMS CAN frames 0x404 and 0x405
+ *        (little-endian), matching the field mapping of tools/cebs_ble.py.
+ *
+ * 0x404: bytes 0-1 current, 2-3 voltage, 4 SOC, 5 SOH
+ * 0x405: bytes 0-1 remaining capacity, 2-3 full charge capacity
  */
 typedef struct {
-    int16_t  current_raw;   /**< Battery current, bytes 0–1 */
-    uint16_t voltage_raw;   /**< Battery voltage, bytes 2–3 */
-    uint8_t  soc_percent;   /**< State of charge [%], byte 4 */
-    bool     data_valid;    /**< True once a valid frame has been received */
-    int64_t  last_rx_us;    /**< esp_timer_get_time() at last 0x404 frame; 0 = never */
-    float    rate_hz;       /**< Approx RX rate over last ~5 s (computed in getter) */
+    int16_t  current_raw;          /**< Battery current, 0x404 bytes 0-1 */
+    uint16_t voltage_raw;          /**< Battery voltage, 0x404 bytes 2-3 */
+    uint8_t  soc_percent;          /**< State of charge [%], 0x404 byte 4 */
+    uint8_t  soh_percent;          /**< State of health [%], 0x404 byte 5 (assumed) */
+    uint16_t remaining_mah;        /**< Remaining capacity [mAh], 0x405 bytes 0-1 */
+    uint16_t full_mah;             /**< Full charge capacity [mAh], 0x405 bytes 2-3 */
+    bool     data_valid;           /**< True once a valid frame has been received */
+    int64_t  last_rx_us;           /**< esp_timer_get_time() at last 0x404 frame; 0 = never */
+    float    rate_hz;              /**< Approx RX rate over last ~5 s (computed in getter) */
 } can_battery_data_t;
 
 /**

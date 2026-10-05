@@ -187,25 +187,39 @@ static void can_rx_task(void *arg)
                 msg.data, false, now);
 
         /* 
-        0x404: Batterie Strom, Spannung, SOC
-        0x406: Batterie Durchschnittsstrom*/
+        0x404: Batterie Strom, Spannung, SOC, SOH
+        0x405: Batterie Remaining-/FullChargeCapacity
+        0x406: Batterie Durchschnittsstrom */
         if (msg.header.id == CAN_ID_BATTERY) {
-            if (twaifd_dlc2len(msg.header.dlc) < 5) {
+            uint8_t len = (uint8_t)twaifd_dlc2len(msg.header.dlc);
+            if (len < 5) {
                 continue;
             }
-            can_battery_data_t tmp;
-            tmp.current_raw = (int16_t)((uint16_t)msg.data[0] |
-                                        ((uint16_t)msg.data[1] << 8));
-            tmp.voltage_raw = (uint16_t)msg.data[2] |
-                              ((uint16_t)msg.data[3] << 8);
-            tmp.soc_percent = msg.data[4];
-            tmp.data_valid  = true;
-            tmp.last_rx_us  = now;
-            tmp.rate_hz     = 0.0f; /* computed in getter */
-
             portENTER_CRITICAL(&s_mux);
-            s_bat_data = tmp;
+            s_bat_data.current_raw = (int16_t)((uint16_t)msg.data[0] |
+                                               ((uint16_t)msg.data[1] << 8));
+            s_bat_data.voltage_raw = (uint16_t)msg.data[2] |
+                                     ((uint16_t)msg.data[3] << 8);
+            s_bat_data.soc_percent = msg.data[4];
+            if (len >= 6) {
+                s_bat_data.soh_percent = msg.data[5];
+            }
+            s_bat_data.data_valid = true;
+            s_bat_data.last_rx_us = now;
             rate_buf_add(&s_bat_rate, now);
+            portEXIT_CRITICAL(&s_mux);
+
+        } else if (msg.header.id == CAN_ID_BATTERY_CAP) {
+            if (twaifd_dlc2len(msg.header.dlc) < 4) {
+                continue;
+            }
+            uint16_t rem  = (uint16_t)msg.data[0] |
+                            ((uint16_t)msg.data[1] << 8);
+            uint16_t full = (uint16_t)msg.data[2] |
+                            ((uint16_t)msg.data[3] << 8);
+            portENTER_CRITICAL(&s_mux);
+            s_bat_data.remaining_mah = rem;
+            s_bat_data.full_mah      = full;
             portEXIT_CRITICAL(&s_mux);
 
         } else if (msg.header.id == CAN_ID_1B2) {
