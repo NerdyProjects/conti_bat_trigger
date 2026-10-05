@@ -84,7 +84,9 @@ var total = 0;
 var paused = false;
 var entries = [];            /* buffered entries for CSV export       */
 var MAX_ROWS = 3000;         /* DOM/memory cap                        */
-var CHUNK = 256;             /* entries per fetch                     */
+var CHUNK = 1024;            /* Eintraege je Abholung (Server-Max 1024) */
+var POLL_MS = 3000;          /* Ruhe-Intervall zwischen Abholungen    */
+var MAX_DRAIN = 8;           /* max. Bloecke je Zyklus (Rueckstand)   */
 var emptyShown = true;
 
 function fmtTime(ms){
@@ -203,15 +205,25 @@ async function fetchChunk(){
   total = j.total;
   return (j.entries ? j.entries.length : 0);
 }
-async function catchUp(){
-  for(var i=0;i<64;i++){
-    var n = await fetchChunk();
+/* Holt nacheinander grosse Bloecke, bis der Puffer leer ist (max. MAX_DRAIN). */
+async function drain(){
+  var n = 0;
+  for(var i=0;i<MAX_DRAIN;i++){
+    n = await fetchChunk();
     if(n < CHUNK) break;
   }
+  return n;
+}
+async function catchUp(){
+  await drain();
 }
 async function poll(){
-  if(paused) return;
-  try{ await fetchChunk(); updateStatus(); applyFilter(); }catch(e){}
+  if(paused){ schedulePoll(); return; }
+  try{ await drain(); updateStatus(); applyFilter(); }catch(e){}
+  schedulePoll();
+}
+function schedulePoll(){
+  setTimeout(poll, POLL_MS);
 }
 function togglePause(){
   paused = !paused;
@@ -262,9 +274,12 @@ async function tog(url){
   pollStatus();
 }
 /* initial load: start from oldest entry still in the buffer */
-catchUp().then(function(){ updateStatus(); applyFilter(); });
-setInterval(poll, 500);
-setInterval(pollStatus, 1000);
+(async function(){
+  try{ await catchUp(); }catch(e){}
+  updateStatus(); applyFilter();
+  schedulePoll();
+})();
+setInterval(pollStatus, 5000);
 pollStatus();
 </script>
 </body></html>

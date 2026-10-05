@@ -23,7 +23,7 @@ extern const uint8_t canlog_page_start[] asm("_binary_canlog_html_start");
 extern const uint8_t canlog_page_end[]   asm("_binary_canlog_html_end");
 
 /** Maximum number of log entries returned in a single API response. */
-#define CAN_LOG_MAX_CHUNK 256
+#define CAN_LOG_MAX_CHUNK 1024
 
 
 /* -----------------------------------------------------------------------
