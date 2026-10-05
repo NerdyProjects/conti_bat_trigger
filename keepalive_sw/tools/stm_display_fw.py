@@ -2247,11 +2247,21 @@ class Protocol:
 # CLI
 # --------------------------------------------------------------------------
 def _add_burst_options(sp) -> None:
-    """Gemeinsame Upload-Optionen: Blockbuendel + Wiederholungen."""
-    sp.add_argument("--resync", type=int, default=8, metavar="N",
-                    help="Bloecke je Buendel; vor jedem Buendel werden "
-                         "Sequencer (0x37) und Adresse (0x34) neu gesetzt "
+    """Gemeinsame Upload-Optionen: Stromverfahren + Blockbuendel."""
+    sp.add_argument("--legacy-blocks", action="store_true",
+                    help="altes blockweises Verfahren (scheitert am Geraet: "
+                         "der Bootloader schaltet nach dem ersten 0x36 auf "
+                         "den Datenstrom um)")
+    sp.add_argument("--stream-pace-ms", type=float, default=4.0,
+                    metavar="MS",
+                    help="Pause je Datenrahmen im Strom (Standard "
+                         "%(default)g; der Flash-Controller braucht je "
+                         "Rahmen einige ms -- bei CRC-Fehler erhoehen)")
+    sp.add_argument("--stream-batch", type=int, default=64, metavar="N",
+                    help="Rahmen je Schub; erst am Schubende wird gelesen "
                          "(Standard %(default)s)")
+    sp.add_argument("--resync", type=int, default=8, metavar="N",
+                    help="(nur --legacy-blocks) Bloecke je Buendel")
     sp.add_argument("--retries", type=int, default=6, metavar="N",
                     help="Versuche je Buendel bei Fehlerrahmen (Standard "
                          "%(default)s)")
@@ -2425,18 +2435,6 @@ def main(argv: Optional[List[str]] = None) -> int:
                          "raw = [len][payload], hdr = 02 21 <len> <payload>")
     sp.add_argument("--dry-run", action="store_true",
                     help="nur anzeigen, nichts senden")
-    sp.add_argument("--stream", action="store_true",
-                    help="Datenstrom-Verfahren (vom Bootloader erwartet): ein "
-                         "Kommandorahmen 0x36, danach reine Datenrahmen bis "
-                         "0x08040000; Ende wird mit 0x76 quittiert")
-    sp.add_argument("--stream-pace-ms", type=float, default=4.0, metavar="MS",
-                    help="Pause je Datenrahmen (Standard %(default)g; der "
-                         "Flash-Controller braucht je Rahmen einige ms)")
-    sp.add_argument("--stream-batch", type=int, default=64, metavar="N",
-                    help="Rahmen je Schub; erst am Schubende wird gelesen "
-                         "(Standard %(default)s)")
-    sp.add_argument("--legacy-blocks", action="store_true",
-                    help="altes blockweises Verfahren (scheitert am Geraet)")
     sp.add_argument("-y", "--yes", action="store_true",
                     help="Sicherheitsabfrage ueberspringen")
     sp.add_argument("-q", "--quiet", action="store_true")
@@ -2527,7 +2525,10 @@ def main(argv: Optional[List[str]] = None) -> int:
                          burst_blocks=args.resync, retries=args.retries,
                          pause_ms=int(args.pause_ms),
                          settle_ms=int(args.settle_ms),
-                         pace_ms=int(args.pace_ms))
+                         pace_ms=int(args.pace_ms),
+                         stream=(not args.legacy_blocks),
+                         batch_frames=args.stream_batch,
+                         stream_pace_ms=args.stream_pace_ms)
         finally:
             tp.close()
 

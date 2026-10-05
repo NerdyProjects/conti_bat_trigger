@@ -533,8 +533,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     verify_app_crc(img)
     print(f"  Image 0x{img.base:08X}..0x{img.base + len(img.data) - 1:08X} "
           f"({len(img.data)} Bytes)")
-    print("\nFlashen:")
-    print(f"  python3 tools/stm_display_fw.py upload {out_bin} --region app")
+    print("\nFlashen (USB anstecken -- die App darf laufen):")
+    print(f"  python3 tools/stm_display_fw.py flash {out_bin}")
     return 0
 
 

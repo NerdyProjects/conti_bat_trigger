@@ -46,7 +46,18 @@ except Exception:  # pragma: no cover
 
 # --------------------------------------------------------------------------
 ROOT = Path(__file__).resolve().parent.parent
-IMG_PATH = ROOT / "data" / "stm32f105_conti.bin"
+
+
+def firmware_path(name: str) -> Path:
+    """Pfad zu einer Firmwaredatei -- ``data/`` oder (Deployment-Paket) ``firmware/``."""
+    for d in (ROOT / "data", ROOT / "firmware"):
+        p = d / name
+        if p.exists():
+            return p
+    return ROOT / "data" / name
+
+
+IMG_PATH = firmware_path("stm32f105_conti.bin")
 
 FLASH = 0x08000000
 FLASH_SIZE = 0x40000
@@ -1154,7 +1165,7 @@ def scenario_uploadtool(emu: "Emu") -> int:
     sys.path.insert(0, str(ROOT / "tools"))
     import stm_display_fw as fw  # noqa: PLC0415
 
-    path = ROOT / "data" / "stm32f105_bms_control.bin"
+    path = firmware_path("stm32f105_bms_control.bin")
     data = path.read_bytes()
     img = fw.load_image(path)
     total = fw.APP_CRC_ADDR + 4 - fw.APP_BASE
@@ -1231,8 +1242,8 @@ F_OFF = 0x080167B6         # Abschaltpfad: 0x555 = 0
 F_SETEN = 0x080167E4       # 0x201-Empfang: [0x2000087E] = 1
 F_DISPATCH = 0x08016822    # Zustandsmaschine
 
-BMS_IMG_ORIG = ROOT / "data" / "stm32f105_conti.bin"
-BMS_IMG_PATCH = ROOT / "data" / "stm32f105_bms_control.hex"
+BMS_IMG_ORIG = firmware_path("stm32f105_conti.bin")
+BMS_IMG_PATCH = firmware_path("stm32f105_bms_control.hex")
 
 FW_APP_BASE = 0x08008000
 FW_APP_CRC_ADDR = 0x0803FFFC
@@ -2092,8 +2103,8 @@ def _blflash_emu(wrp_from: Optional[int], locked: bool = False,
     Fehlerausgabe, WWDG, Blob-Einstieg). Echt laufen: Dispatcher, Handler,
     f_801964/f_801998, die Trampoline 0x0800100E/18/22/2C und der RAM-Blob.
     """
-    data = img if img is not None else (ROOT / "data" / "stm32f105_conti.bin"
-                                        ).read_bytes()
+    data = img if img is not None else firmware_path(
+        "stm32f105_conti.bin").read_bytes()
     e = Emu(data)
     rec: Dict[str, object] = {}
     fm = FlashModel(e, wrp_from, locked)
@@ -2430,7 +2441,7 @@ def scenario_blreadback(emu: "Emu") -> int:
     sys.path.insert(0, str(ROOT / "tools"))
     import stm_display_fw as fw  # noqa: PLC0415
 
-    data = (ROOT / "data" / "stm32f105_bms_control.bin").read_bytes()
+    data = firmware_path("stm32f105_bms_control.bin").read_bytes()
     e, fm = _blflash_emu(None, False, data)
     tp = _ToolBlTransport(e)
     proto = fw.Protocol(tp, verbose=False, wire="app")
@@ -2527,7 +2538,7 @@ def scenario_blsticky(emu: "Emu") -> int:
     sys.path.insert(0, str(ROOT / "tools"))
     import stm_display_fw as fw  # noqa: PLC0415
 
-    data = (ROOT / "data" / "stm32f105_conti.bin").read_bytes()
+    data = firmware_path("stm32f105_conti.bin").read_bytes()
     img = fw.Image(bytearray(data))
     e, fm = _blflash_emu(None, False, data)      # Flash offen, echter Code
     tp = _ToolBlTransport(e)
