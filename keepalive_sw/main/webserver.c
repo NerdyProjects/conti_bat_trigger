@@ -26,6 +26,19 @@ extern const uint8_t canlog_page_end[]   asm("_binary_canlog_html_end");
 /** Maximum number of log entries returned in a single API response. */
 #define CAN_LOG_MAX_CHUNK 1024
 
+/*
+ * Ausgabepuffer fuer /api/can/log, an die TCP-MSS angelehnt: MTU 1500 minus
+ * IP/TCP-Header ergibt hier CONFIG_LWIP_TCP_MSS (1440). Ein paar Bytes
+ * Reserve fuer die Chunked-Transfer-Kodierung, damit ein Flush in genau ein
+ * TCP-Segment passt statt in ein volles plus ein Teilsegment. Der Puffer
+ * liegt auf dem Heap, um den httpd-Stack zu schonen.
+ */
+#ifdef CONFIG_LWIP_TCP_MSS
+#define CAN_LOG_OUT_BUF (CONFIG_LWIP_TCP_MSS - 32)
+#else
+#define CAN_LOG_OUT_BUF 1408
+#endif
+
 
 /* -----------------------------------------------------------------------
  * Request handlers
@@ -218,13 +231,20 @@ static esp_err_t handler_can_log(httpd_req_t *req)
      * Kompaktes Format + gebuendelte Ausgabe:
      * - Jeder Eintrag ist ein Array [seq,t,id,dlc,tx,"hex"] statt eines
      *   Objekts mit wiederholten Schluesselnamen (etwa halbe Nutzlast).
-     * - Ausgabe erst in ~2-KB-Bloecken, damit wenige grosse statt tausender
-     *   kleiner TCP-Segmente entstehen (bessere Auslastung bei langsamem WLAN).
+     * - Ausgabe in MSS-grossen Bloecken (siehe CAN_LOG_OUT_BUF), damit
+     *   wenige volle TCP-Segmente statt tausender kleiner entstehen.
      */
-    char out[2048];
-    int  olen = snprintf(out, sizeof(out),
-                         "{\"total\":%u,\"next\":%u,\"entries\":[",
-                         (unsigned)total, (unsigned)next);
+    char *out = malloc(CAN_LOG_OUT_BUF);
+    if (!out) {
+        free(entries);
+        httpd_resp_send_500(req);
+        return ESP_ERR_NO_MEM;
+    }
+
+    esp_err_t ret = ESP_OK;
+    int olen = snprintf(out, CAN_LOG_OUT_BUF,
+                        "{\"total\":%u,\"next\":%u,\"entries\":[",
+                        (unsigned)total, (unsigned)next);
 
     for (int i = 0; i < n; i++) {
         can_log_entry_t *e = &entries[i];
@@ -242,10 +262,10 @@ static esp_err_t handler_can_log(httpd_req_t *req)
         if (clen >= (int)sizeof(chunk)) {
             clen = (int)sizeof(chunk) - 1;
         }
-        if (olen + clen > (int)sizeof(out)) {
+        if (olen + clen > CAN_LOG_OUT_BUF) {
             if (httpd_resp_send_chunk(req, out, olen) != ESP_OK) {
-                free(entries);
-                return ESP_FAIL;
+                ret = ESP_FAIL;
+                goto done;
             }
             olen = 0;
         }
@@ -253,19 +273,24 @@ static esp_err_t handler_can_log(httpd_req_t *req)
         olen += clen;
     }
 
-    if (olen + 2 > (int)sizeof(out)) {
+    if (olen + 2 > CAN_LOG_OUT_BUF) {
         if (httpd_resp_send_chunk(req, out, olen) != ESP_OK) {
-            free(entries);
-            return ESP_FAIL;
+            ret = ESP_FAIL;
+            goto done;
         }
         olen = 0;
     }
     out[olen++] = ']';
     out[olen++] = '}';
-    httpd_resp_send_chunk(req, out, olen);
-    httpd_resp_send_chunk(req, NULL, 0);
+    if (httpd_resp_send_chunk(req, out, olen) != ESP_OK ||
+        httpd_resp_send_chunk(req, NULL, 0) != ESP_OK) {
+        ret = ESP_FAIL;
+    }
+
+done:
+    free(out);
     free(entries);
-    return ESP_OK;
+    return ret;
 }
 
 /** POST /api/can/log/clear — discard all logged entries. */
