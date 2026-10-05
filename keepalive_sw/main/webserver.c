@@ -9,6 +9,7 @@
 #include <esp_ota_ops.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define TAG "WEB"
 
@@ -213,32 +214,56 @@ static esp_err_t handler_can_log(httpd_req_t *req)
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
 
-    char head[80];
-    snprintf(head, sizeof(head),
-             "{\"total\":%u,\"next\":%u,\"entries\":[",
-             (unsigned)total, (unsigned)next);
-    httpd_resp_sendstr_chunk(req, head);
+    /*
+     * Kompaktes Format + gebuendelte Ausgabe:
+     * - Jeder Eintrag ist ein Array [seq,t,id,dlc,tx,"hex"] statt eines
+     *   Objekts mit wiederholten Schluesselnamen (etwa halbe Nutzlast).
+     * - Ausgabe erst in ~2-KB-Bloecken, damit wenige grosse statt tausender
+     *   kleiner TCP-Segmente entstehen (bessere Auslastung bei langsamem WLAN).
+     */
+    char out[2048];
+    int  olen = snprintf(out, sizeof(out),
+                         "{\"total\":%u,\"next\":%u,\"entries\":[",
+                         (unsigned)total, (unsigned)next);
 
     for (int i = 0; i < n; i++) {
         can_log_entry_t *e = &entries[i];
-        char data_str[25] = "";
-        int dp = 0;
+        char data_str[17] = "";
         for (int b = 0; b < e->dlc && b < 8; b++) {
-            dp += snprintf(data_str + dp, sizeof(data_str) - dp,
-                           b > 0 ? " %02X" : "%02X", e->data[b]);
+            snprintf(data_str + b * 2, 3, "%02X", e->data[b]);
         }
-        char chunk[160];
-        snprintf(chunk, sizeof(chunk),
-                 "%s{\"seq\":%u,\"t\":%u,\"id\":\"0x%03X\",\"dlc\":%u,"
-                 "\"data\":\"%s\",\"tx\":%s}",
-                 i > 0 ? "," : "",
-                 (unsigned)(first + (uint32_t)i), (unsigned)e->ts_ms,
-                 (unsigned)e->id, (unsigned)e->dlc, data_str,
-                 e->tx ? "true" : "false");
-        httpd_resp_sendstr_chunk(req, chunk);
+        char chunk[96];
+        int clen = snprintf(chunk, sizeof(chunk),
+                            "%s[%u,%u,%u,%u,%u,\"%s\"]",
+                            i > 0 ? "," : "",
+                            (unsigned)(first + (uint32_t)i),
+                            (unsigned)e->ts_ms, (unsigned)e->id,
+                            (unsigned)e->dlc, e->tx ? 1u : 0u, data_str);
+        if (clen >= (int)sizeof(chunk)) {
+            clen = (int)sizeof(chunk) - 1;
+        }
+        if (olen + clen > (int)sizeof(out)) {
+            if (httpd_resp_send_chunk(req, out, olen) != ESP_OK) {
+                free(entries);
+                return ESP_FAIL;
+            }
+            olen = 0;
+        }
+        memcpy(out + olen, chunk, clen);
+        olen += clen;
     }
-    httpd_resp_sendstr_chunk(req, "]}");
-    httpd_resp_sendstr_chunk(req, NULL);
+
+    if (olen + 2 > (int)sizeof(out)) {
+        if (httpd_resp_send_chunk(req, out, olen) != ESP_OK) {
+            free(entries);
+            return ESP_FAIL;
+        }
+        olen = 0;
+    }
+    out[olen++] = ']';
+    out[olen++] = '}';
+    httpd_resp_send_chunk(req, out, olen);
+    httpd_resp_send_chunk(req, NULL, 0);
     free(entries);
     return ESP_OK;
 }

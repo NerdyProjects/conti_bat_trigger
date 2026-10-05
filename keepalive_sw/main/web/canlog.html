@@ -193,11 +193,30 @@ function updateStatus(){
     '  \u2022  im Speicher: ' + entries.length +
     (paused ? '  \u2022  PAUSIERT' : '');
 }
+/* Der Server liefert jeden Eintrag kompakt als Array
+   [seq, t, id, dlc, tx, "hh.."] -> hier auf das interne Objektformat bringen. */
+function toEntry(a){
+  var hex = a[5] || '';
+  var data = '';
+  for(var i=0;i<hex.length;i+=2){
+    if(i) data += ' ';
+    data += hex.substr(i,2);
+  }
+  var h = a[2].toString(16).toUpperCase();
+  return {
+    seq: a[0],
+    t: a[1],
+    id: '0x' + (h.length >= 3 ? h : ('000' + h).slice(-3)),
+    dlc: a[3],
+    tx: !!a[4],
+    data: data
+  };
+}
 async function fetchChunk(){
   var r = await fetch('/api/can/log?since=' + since + '&max=' + CHUNK);
   var j = await r.json();
   if(j.entries && j.entries.length){
-    appendEntries(j.entries);
+    appendEntries(j.entries.map(toEntry));
     since = j.next;
   } else if(j.next !== undefined){
     since = j.next;
