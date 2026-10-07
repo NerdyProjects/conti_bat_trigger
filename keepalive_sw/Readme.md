@@ -59,7 +59,28 @@ Erster Continental-Vendor-Service (`00000a00-…`) / erste Charakteristik
 (`00000a01-…`) = Verkettung der BMS-CAN-Rahmen `0x404`+`0x405`+`0x406`:
 Byte 1–2 = Strom (`int16` LE, mA), Byte 3–4 = Spannung (`uint16` LE, mV),
 Byte 5 = SOC (%), Byte 6 = SOH (%, Vermutung), Byte 7–8 = RemainingCapacity
-(mAh), Byte 9–10 = FullChargeCapacity (mAh). Details siehe Modul-Docstring.
+(mAh), Byte 9–10 = FullChargeCapacity (mAh), Byte 15–16 = **Durchschnittsstrom**
+(`int16` LE, mA). Details siehe Modul-Docstring.
+
+Zwei Ströme: `0x404` liefert den schnell nachgeführten Wert, `0x406` (Byte
+15–16) einen trägen Durchschnitt (Zeitkonstante ca. 10–20 s, Auflösung
+10 mA). Nachgewiesen mit einem ~100-mA-Lastsprung: der erste Wert springt
+sofort, der zweite läuft exponentiell nach.
+
+Für eigene Messreihen (z. B. Sprungantworten) gibt es
+`tools/cebs_ble_trace.py` – liest mit einstellbarer Rate und schreibt jede
+Änderung mit Zeitstempel in eine CSV:
+
+```bash
+.venv/bin/python tools/cebs_ble_trace.py --seconds 120 --csv trace.csv
+```
+
+Hinweis: Die Charakteristik ist **read-only** (keine Notifications, BlueZ
+meldet „Operation is not supported"). Werte müssen also gelesen werden; das
+Display aktualisiert sie ca. 1x/s. Nur **eine** BLE-Zentrale gleichzeitig:
+Solange ein Rechner verbunden ist, sendet das Display nicht mehr und ist für
+andere (z. B. die Handy-App) unsichtbar – Verbindung vorher trennen
+(`bluetoothctl disconnect <adresse>`).
 
 ### Akku-Check als Android-App
 

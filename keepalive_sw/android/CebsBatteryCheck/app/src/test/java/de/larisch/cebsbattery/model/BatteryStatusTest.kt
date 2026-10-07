@@ -62,6 +62,46 @@ class BatteryStatusTest {
         assertNull(BatteryStatus.from(ByteArray(0)))
     }
 
+    @Test
+    fun `avg current is decoded from bytes 15-16`() {
+        val status = requireNotNull(
+            BatteryStatus.from(hex("e2 ff a2 9e 58 64 1a 36 12 3e 00 00 00 00 6a ff 00 00 00 00")),
+        )
+
+        assertEquals(-30, status.currentMa)
+        assertEquals(-150, status.currentAvgMa)
+        assertEquals(-150, status.referenceCurrentMa)
+    }
+
+    @Test
+    fun `remaining time uses the average current`() {
+        // 13850 mAh bei 150 mA Entladestrom -> 92 h 20 min
+        val status = requireNotNull(
+            BatteryStatus.from(hex("e2 ff a2 9e 58 64 1a 36 12 3e 00 00 00 00 6a ff 00 00 00 00")),
+        )
+
+        assertEquals(332_400L, status.estimatedRemainingSeconds())
+    }
+
+    @Test
+    fun `remaining time falls back to the instant current`() {
+        // 14 Byte: der Durchschnittsstrom fehlt noch
+        val status = requireNotNull(BatteryStatus.from(hex("e2 ff a2 9e 58 64 1a 36 12 3e 00 00 00 00")))
+
+        assertNull(status.currentAvgMa)
+        assertEquals(-30, status.referenceCurrentMa)
+        assertEquals(1_662_000L, status.estimatedRemainingSeconds())
+    }
+
+    @Test
+    fun `no remaining time while charging or idle`() {
+        val charging = requireNotNull(BatteryStatus.from(hex("2c 01 06 9f 59 64 00 00 00 00")))
+        val idle = requireNotNull(BatteryStatus.from(hex("0a 00 06 9f 59 64 00 00 00 00")))
+
+        assertNull(charging.estimatedRemainingSeconds())
+        assertNull(idle.estimatedRemainingSeconds())
+    }
+
     private fun hex(text: String): ByteArray =
         text.split(" ").map { it.toInt(16).toByte() }.toByteArray()
 }

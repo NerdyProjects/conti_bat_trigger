@@ -6,8 +6,9 @@ für einen schnellen Akkucheck übersichtlich darstellt. Gegenstück zu
 
 * Verbindet **beim Start automatisch** (BLE-Scan nach Name `CEBS`) und
   verbindet nach Abbruch selbstständig neu.
-* Zeigt Ladezustand (groß, farbig), Spannung, Strom, Leistung, Rest- und
-  Vollkapazität, SOH sowie die Rohbytes der Charakteristik.
+* Zeigt Ladezustand (groß, farbig), Spannung, Strom (momentan), Strom Ø, die
+  geschätzte **Restdauer**, Leistung, Rest- und Vollkapazität, SOH sowie die
+  Rohbytes der Charakteristik.
 * Liest **ausschließlich**. Es wird nie etwas geschrieben – der Akku bleibt
   unangetastet.
 
@@ -20,22 +21,40 @@ BMS-CAN-Rahmen `0x404` + `0x405` + `0x406`:
 
 | Byte | Typ | Bedeutung |
 |---|---|---|
-| 1..2 | `int16` LE | Strom [mA] |
+| 1..2 | `int16` LE | Strom [mA] (reagiert schnell) |
 | 3..4 | `uint16` LE | Spannung [mV] |
 | 5 | `uint8` | SOC [%] (`0xFF` = ungültig) |
 | 6 | `uint8` | SOH [%] |
 | 7..8 | `uint16` LE | RemainingCapacity [mAh] |
 | 9..10 | `uint16` LE | FullChargeCapacity [mAh] |
-| 11..20 | – | unbekannt |
+| 11..14 | – | unbekannt |
+| 15..16 | `int16` LE | Strom Ø [mA] (Durchschnitt, träge) |
+| 17..20 | – | unbekannt |
 
 Verkabelung/Dokumentation: `keepalive_sw/tools/README.md` Abschnitt 6.
 
-**Vorzeichen des Stroms:** negativ = Entladen, positiv = Laden. Das ist eine
-Annahme aus dem POC-Mitschnitt (`I = -90 mA` bei SOC 89 %); die App zeigt die
-Richtung nur als Hinweis an.
+### Zwei Ströme und Restdauer
 
-Es wird bevorzugt die Notification abonniert; zusätzlich wird alle 5 s (ohne
-Notification: jede Sekunde) gelesen, damit immer ein aktueller Wert dasteht.
+Das BMS liefert den Strom zweimal: Byte 1–2 ist der schnell nachgeführte Wert
+(CAN `0x404`), Byte 15–16 ein träger Durchschnitt (CAN `0x406`). Messung mit
+einem ~100-mA-Lastsprung: der erste Wert springt innerhalb einer Sekunde, der
+zweite läuft exponentiell nach (Zeitkonstante grob 10–20 s, Auflösung 10 mA).
+
+* **Restdauer** = Restkapazität / Entladestrom, gerechnet mit dem
+  *Durchschnittsstrom* – der ist dafür die stabilere Basis. Angezeigt als
+  `X h Y min` (über 99 h nur als `> 99 h`); beim Laden steht dort `lädt`,
+  in Ruhe `–`.
+* Das Vorzeichen steht für die Richtung: negativ = entladen, positiv = laden.
+  Die Richtung gilt als „Ruhe", solange |I| < 30 mA ist – dann gibt es auch
+  keine Restdauer.
+
+**Vorzeichen des Stroms:** negativ = Entladen, positiv = Laden. Das ist eine
+Annahme aus dem POC-Mitschnitt (`I = -90 mA` bei SOC 89 %) und wurde durch
+Lastsprünge bestätigt (Last → Strom wird negativer).
+
+Die Charakteristik ist **read-only** – Notifications lehnt das Gerät ab. Die
+App liest deshalb im Sekundentakt (das Display aktualisiert seine Werte selbst
+nur etwa 1x/s).
 
 ## Bauen und installieren
 

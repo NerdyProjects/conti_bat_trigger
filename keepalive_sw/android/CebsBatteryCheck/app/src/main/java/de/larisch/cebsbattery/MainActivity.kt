@@ -308,9 +308,24 @@ private fun MetricsCard(status: BatteryStatus?) {
             )
             MetricRow(
                 label = stringResource(R.string.label_current),
+                value = status?.let { String.format(Locale.GERMANY, "%+.3f A", it.currentA) } ?: unknown,
+            )
+            MetricRow(
+                label = stringResource(R.string.label_current_avg),
                 value = status?.let { s ->
-                    String.format(Locale.GERMANY, "%+.3f A", s.currentA) + " " + directionLabel(s.direction)
+                    val avg = s.currentAvgMa
+                    if (avg == null) {
+                        unknown
+                    } else {
+                        String.format(Locale.GERMANY, "%+.3f A", avg / 1000.0) +
+                            " " + directionLabel(s.direction)
+                    }
                 } ?: unknown,
+            )
+            MetricRow(
+                label = stringResource(R.string.label_remaining_time),
+                value = remainingTimeLabel(status),
+                emphasize = true,
             )
             MetricRow(
                 label = stringResource(R.string.label_power),
@@ -431,4 +446,25 @@ private fun directionLabel(direction: BatteryStatus.CurrentDirection): String = 
     BatteryStatus.CurrentDirection.CHARGING -> "(Laden)"
     BatteryStatus.CurrentDirection.DISCHARGING -> "(Entladen)"
     BatteryStatus.CurrentDirection.IDLE -> "(Ruhe)"
+}
+
+/**
+ * Restdauer aus Restkapazitaet / Durchschnittsstrom. Beim Laden und in Ruhe
+ * gibt es keine sinnvolle Entladedauer.
+ */
+@Composable
+private fun remainingTimeLabel(status: BatteryStatus?): String {
+    if (status == null) return stringResource(R.string.value_unknown)
+    status.estimatedRemainingSeconds()?.let { return formatDuration(it) }
+    return when (status.direction) {
+        BatteryStatus.CurrentDirection.CHARGING -> stringResource(R.string.remaining_charging)
+        else -> stringResource(R.string.value_unknown)
+    }
+}
+
+private fun formatDuration(seconds: Long): String {
+    if (seconds >= 99 * 3600) return "> 99 h"
+    val hours = seconds / 3600
+    val minutes = (seconds % 3600) / 60
+    return if (hours > 0) "$hours h $minutes min" else "$minutes min"
 }

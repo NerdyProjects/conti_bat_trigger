@@ -211,18 +211,26 @@ Das Werkzeug nimmt den **ersten Continental-Vendor-Service**
 
 | Byte | Typ | Bedeutung | Quelle |
 |---|---|---|---|
-| 1..2 | `int16` LE | Stromstärke (AverageCurrent) [mA] | 0x404 b0-1 |
+| 1..2 | `int16` LE | Strom aktuell [mA] | 0x404 b0-1 |
 | 3..4 | `uint16` LE | Spannung [mV] | 0x404 b2-3 |
 | 5 | `uint8` | Ladezustand SOC [%] (`0xFF` = ungültig) | 0x404 b4 |
 | 6 | `uint8` | SOH [%] (Vermutung, konstant 100) | 0x404 b5 |
 | 7..8 | `uint16` LE | RemainingCapacity [mAh] | 0x405 b0-1 |
 | 9..10 | `uint16` LE | FullChargeCapacity [mAh] | 0x405 b2-3 |
 | 11..14 | – | unbekannt (0x405 b4-7) | 0x405 |
-| 15..16 | `int16` LE | Stromstärke (Duplikat) [mA] | 0x406 b0-1 |
+| 15..16 | `int16` LE | Strom Durchschnitt (träge) [mA] | 0x406 b0-1 |
 | 17..20 | – | unbekannt (0x406 b2-5) | 0x406 |
 
 Die Zuordnung wurde aus der STM-Firmware rekonstruiert (USART-Nachricht
 Index 1) und gegen die CAN-Mitschnitte `data/can_log*.csv` geprüft.
+
+**Zwei Ströme:** Das BMS schickt den Strom zweimal – in `0x404` den schnell
+nachgeführten Wert und in `0x406` einen trägen Durchschnitt. Nachgewiesen mit
+einem Lastsprung (ca. 100 mA): der Wert aus `0x404` springt in derselben
+Sekunde, der aus `0x406` läuft exponentiell nach (Zeitkonstante grob
+10–20 s, Auflösung 10 mA). Beide stecken in derselben BLE-Charakteristik
+(Byte 1..2 und 15..16) – für Restlaufzeit-Schätzungen ist der Durchschnitt
+die stabilere Basis.
 
 Beispielausgabe:
 

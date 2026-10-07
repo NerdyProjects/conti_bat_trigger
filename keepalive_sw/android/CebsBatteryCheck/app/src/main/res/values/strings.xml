@@ -12,13 +12,17 @@
 
     <string name="label_soc">Ladezustand</string>
     <string name="label_voltage">Spannung</string>
-    <string name="label_current">Strom</string>
+    <string name="label_current">Strom (momentan)</string>
+    <string name="label_current_avg">Strom Ø (Durchschnitt)</string>
+    <string name="label_remaining_time">Restdauer</string>
     <string name="label_power">Leistung</string>
     <string name="label_remaining">Restkapazität</string>
     <string name="label_full">Vollkapazität</string>
     <string name="label_soh">SOH</string>
     <string name="label_updated">Aktualisiert</string>
     <string name="label_raw">Rohdaten 0x0a01</string>
+
+    <string name="remaining_charging">lädt</string>
 
     <string name="state_idle">Bereit</string>
     <string name="state_scanning">Suche Akku (CEBS) …</string>
