@@ -61,6 +61,16 @@ P7 0x080093D8  O2 "Selbstversorgung": Trampolin in den freien Block
                10) -> der Original-Code laedt den 5-Minuten-Timer nach und
                setzt 0x555 = 1. Ersetzt P5 (und macht P1 redundant).
 
+Optional -- NICHT in der Standard-Auswahl, nur mit ``--can-sniffer``:
+
+C1 0x0801D338  CAN-Empfang generisch. Die Weiterleitung CAN -> USB-HID
+               (0x0801D35A) liess nur die ID-Whitelist 0x422/0x425/0x101/
+               0x331/0x668 durch. Der Patch ersetzt den Filter durch "immer
+               ja" und stellt sicher, dass 0x0801D35A trotzdem 1 liefert --
+               so wird JEDES empfangene Frame an den Host gemeldet UND
+               weiterhin vom App-Handler verarbeitet. Nutzbar mit
+               ``tools/can_hid.py``.
+
 Alle Patches sind reine Codepfad-Aenderungen:
   * keine Stack-Aenderung (push/pop-Balance bleibt),
   * keine Literal-Pool-Bereiche werden ueberschrieben,
@@ -151,6 +161,17 @@ O2_CAVE = 0x0803FF00            # freie Flaeche -- siehe Pruefung unten!
 O2_STATE = 0x08016822           # ersetzter Aufruf: Zustandsmaschine
 O2_LATCH_SET = 0x080167E4       # f_167E4: setzt [0x2000087E] = 1 (0x201-Post-Call)
 O2_X201_SLOT = 0x20000A0C       # 0x201-Nutzlast (Signal 14, DLC 4)
+
+# --------------------------------------------------------------------------
+# C1: CAN-Empfang generisch -- Weiterleitungsfilter 0x0801D338 abschalten
+# --------------------------------------------------------------------------
+# 0x0801D35A wird fuer JEDES RX-Frame aus dem CAN-Handler 0x0801B066 gerufen.
+# Es prueft die ID mit 0x0801D338 (Tabelle 0x08037B3E) und liefert 0 (Frame
+# verbraucht) oder 1 (normal weiter dispatchen) zurueck. C1 macht aus dem
+# Filter ein "immer 1" und laesst 0x0801D35A trotzdem 1 liefern.
+CAN_FWD_FILTER = 0x0801D338     # ID-Filter (Original: 02 46 00 20 00 21 08 e0)
+CAN_FWD_R8 = 0x0801D3C4         # `mov.w r8,#0` -> Frame gilt als "verbraucht"
+CAN_FWD_SKIP300 = 0x0801D3AE    # `beq` ueberspringt 0x300 beim Weiterleiten
 
 
 def _thumb_bl(addr: int, target: int) -> bytes:
@@ -362,6 +383,26 @@ PATCHES: Tuple[Patch, ...] = (
         "     Quellcode: tools/o2_cave.s (Bauen: tools/patch_bms.py --print-o2).",
         extra=(Segment(O2_CAVE, (b"\xff" * len(O2_CAVE_BYTES),), O2_CAVE_BYTES),),
     ),
+    Patch(
+        "C1",
+        CAN_FWD_FILTER,
+        (bytes.fromhex("02 46 00 20 00 21 08 e0"),),
+        bytes.fromhex("01 20 70 47 00 bf 00 bf"),   # movs r0,#1; bx lr; nop; nop
+        "CAN-Empfang generisch: jedes Frame an den Host melden",
+        "Filter 0x0801D338 (`0x08037B3E`-Whitelist) -> immer 1.\n"
+        "     Zusaetzlich wird 0x0801D3C4 (`mov r8,#0`) zu NOP, damit\n"
+        "     0x0801D35A weiter 1 liefert und der normale App-Handler-Dispatch\n"
+        "     erhalten bleibt, und 0x0801D3AE (`beq`) zu NOP, damit auch 0x300\n"
+        "     gemeldet wird. Optionaler Zusatz-Patch (--can-sniffer), nicht in\n"
+        "     der Standard-Auswahl. Jedes CAN-Frame -> ein 64-Byte-HID-Report;\n"
+        "     bei hoher Buslast kann USB nicht mithalten (Frames gehen verloren).",
+        extra=(
+            Segment(CAN_FWD_R8, (bytes.fromhex("4f f0 00 08"),),
+                    bytes.fromhex("00 bf 00 bf")),
+            Segment(CAN_FWD_SKIP300, (bytes.fromhex("09 d0"),),
+                    bytes.fromhex("00 bf")),
+        ),
+    ),
 )
 
 
@@ -439,6 +480,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--list", action="store_true", help="nur Patchliste zeigen")
     ap.add_argument("--print-o2", action="store_true",
                     help="O2-Code (tools/o2_cave.s) assemblieren und anzeigen")
+    ap.add_argument("--can-sniffer", action="store_true",
+                    help="C1 zusaetzlich anwenden: ALLE CAN-Frames an HID melden "
+                         "(generischer Empfang, tools/can_hid.py)")
     ap.add_argument("--no-crc", action="store_true",
                     help="App-CRC nicht neu berechnen (nicht empfohlen)")
     args = ap.parse_args(argv)
@@ -478,12 +522,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     unknown = skip - {p.pid for p in PATCHES}
     if unknown:
         raise SystemExit(f"Unbekannte Patch-IDs: {', '.join(sorted(unknown))}")
-    active = [p for p in PATCHES if p.pid not in skip]
+    # C1 ist optional und wird nur mit --can-sniffer angehaengt.
+    active = [p for p in PATCHES if p.pid not in skip and p.pid != "C1"]
     # Abgeloeste Patches (z. B. P5 durch P7) automatisch auslassen.
     active_ids = {p.pid for p in active}
     dropped = [p for p in active
                if p.superseded_by and p.superseded_by in active_ids]
     active = [p for p in active if p not in dropped]
+    if args.can_sniffer and "C1" not in skip:
+        active = active + [p for p in PATCHES if p.pid == "C1"]
 
     if not args.src.exists():
         raise SystemExit(f"Quelle nicht gefunden: {args.src}")
@@ -508,13 +555,15 @@ def main(argv: Optional[List[str]] = None) -> int:
             note = "uebersprungen"
         elif p in dropped:
             note = f"durch {p.superseded_by} abgeloest"
+        elif p not in active:
+            note = "nicht aktiv (optional)"
         elif smap.get(p.pid) == "already":
             note = "war schon gesetzt"
         else:
             note = "angewendet"
         print(f"[{p.pid}] 0x{p.addr:08X}  {p.new.hex(' '):<24} {p.title}  ({note})")
         for seg in p.extra:
-            print(f"      + 0x{seg.addr:08X}  {len(seg.new)} Byte  (Code-Cave)")
+            print(f"      + 0x{seg.addr:08X}  {len(seg.new)} Byte  (Zusatzbereich)")
         for line in p.detail.splitlines():
             print(f"    {line}")
 

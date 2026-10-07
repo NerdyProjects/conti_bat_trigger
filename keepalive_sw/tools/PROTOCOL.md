@@ -556,6 +556,29 @@ nach einem Flash-Befehl **stumm**, ohne sich abzumelden. Deshalb:
   zusammenfaellt,
 * jede Sitzung entsperrt den Flash explizit mit ``0x31/0x10203``.
 
+### 9.3.1 Fallstrick: Lese-Timeout 0 blockiert (hidapi-Bindungen)
+
+Die beiden verbreiteten ``hid``-Bindungen behandeln ``read(len, 0)``
+**unterschiedlich**:
+
+* neue Bindung (``hid.Device.read(size, timeout)``, ctypes-Variante): ``0``
+  geht als ``hid_read_timeout(..., 0)`` raus -> nicht blockierend,
+* klassische Bindung (``hid.device.read(max_length, timeout_ms=0)``, z. B. das
+  PyPI-Wheel ``hidapi 0.15.0``): ``timeout_ms <= 0`` geht auf **``hid_read()``**
+  -> das ist der *blockierende* Aufruf und wartet **unbegrenzt** auf einen
+  Report.
+
+Im Datenstrom antwortet das Geraet auf erfolgreiche Rahmen nicht. Ein
+``recv(0)``/``poll(0)`` blieb deshalb in der klassischen Bindung genau am
+Stromanfang stehen -- direkt nach dem ersten ``-> … | 36 01 …`` kam keine
+Ausgabe mehr, obwohl das Geraet weiterlief. Deshalb:
+
+* ``Transport.recv()``/``Transport.poll()`` runden das Timeout ueber
+  ``_hid_timeout()`` auf **mindestens 1 ms** auf (und auf ``int``),
+* der Drain des ersten ``0x36``-Rahmens (``Protocol.cmd_write_block()``) nutzt
+  ``poll()`` statt ``recv()``: ein Lesefehler ist dort normal und darf den
+  Handle **nicht** mitten im Strom neu aufbauen.
+
 ### 9.4 Latchender Flash-Fehlerzustand -- Mechanismus bewiesen
 
 Wer auf **nicht geloeschten** Flash programmiert (Loeschen unvollstaendig
@@ -626,3 +649,153 @@ Empfohlener Ablauf bei diesem Bild:
 3. `python3 tools/stm_display_fw.py flash data/stm32f105_bms_control.bin --region app`
    -- Erase, Buendel mit Wiederholungen, CRC-Endkontrolle, Reset.
 
+
+## 10. CAN-Bruecke der App (HID <-> CAN) [V]
+
+Die App ist nicht nur Nachrichtenempfaenger, sondern **Bruecke zum CAN-Bus**:
+Rahmen aus dem HID-Transport werden gesendet, empfangene CAN-Frames zum Host
+gemeldet. Verifiziert end-to-end im Emulator mit dem ausgelieferten Tool:
+`python3 tools/emu.py canbridge`.
+
+### 10.1 Senden (Host -> CAN)
+
+Derselbe Verpacker wie beim App-Kanal (`0x0801D5C2`) schickt den Block
+`[id_lo][id_hi][len][daten]` zusaetzlich in eine **eigene Sende-FIFO B**
+(Zeiger `0x20000BA4`); die eigentliche Nachricht geht an FIFO A
+(`0x20000BA0`). Der Port-Task `0x0801D900` leert FIFO B:
+
+```
+0x0801D75C  Typ-1-Rahmen  [seq][01][3D][id_lo][id_hi][len][daten]  (len<=58)
+0x0801D65C  Typ-0-Rahmen  [seq][00][n*11][ (id_lo id_hi dlc daten[8]) * n ]  (n<=5)
+0x0801D5C2  baut [id_lo][id_hi][len][daten] und pusht:
+    - FIFO A, wenn 0x0801D4E2(id) = 1     (nur 0x550/0x552)
+    - FIFO B, wenn 0x0801D522(id) = 1 und len<=8
+0x0801D900  Port-Task; bei freier Mailbox 0x0801D158(r0) rufen
+0x0801D158  Block aus FIFO B -> Slot 27: 0x0801BA24(id), 0x0801BA3A(dlc),
+            0x0801BA46(daten), 0x0801B7A0(27)
+0x0801B7A0  prueft CAN-bereit (0x20000AD4 Bit0) und Mailbox frei
+            (0x20000ABC == 0xFFFF) -> 0x0801B07E(slot)
+0x0801B07E  schreibt CAN1-Mailbox 0: TI0R = id<<21, TDT0R = DLC,
+            TDL0R/TDH0R = 8 Datenbytes, dann TI0R |= 1 (TXRQ)
+```
+
+**ID-Filter (wichtig):** `0x0801D522` prueft mit der Tabelle `0x08037B3C`
+gegen die ID. Die Routine ist **fehlerhaft** -- sie liefert 1 fuer jede ID
+**ausser 0x0550** (`0x0801D5B8..0x0801D5BC`: nur wenn die ID in Tabelle A
+*und* B steht, wird 0 zurueckgegeben). Praktische Folge: eine beliebige
+11-Bit-ID `!= 0x0550` wird auf den CAN-Bus gesendet. `0x0550` ist der reine
+App-Nachrichtenkanal und landet **nicht** auf dem Bus. (0x0552 geht in beide
+Wege.)
+
+Die CAN-Frame-ID ist die **Kanal-ID** des HID-Rahmens, `len` (max. 8) wird
+zur DLC. Das Tool baut die Rahmen selbst (`tools/can_hid.py`).
+
+### 10.2 Empfangen (CAN -> Host)
+
+Der CAN-RX-Handler gibt passende Frames an den HID-Sender weiter:
+
+```
+IRQ20 (CAN1_RX0) -> 0x0801B066 (liest RF0R) -> 0x0801AFC6
+  -> 0x0801D35A(r0 = CAN-State)
+       r6 = STDID (RIR>>21), r7 = DLC, 8 Datenbytes
+       0x0801D338(id)  Filter, Tabelle 0x08037B3E, Limit 6
+       0x0800B59C()==4 (USB-Port bereit) und id != 0x0300
+  -> 0x0801D1DA(typ=1, id, dlc, daten) -> 0x0801D1C0 (HID-IN-Report)
+```
+
+Der Host erhaelt also einen **Typ-1-Rahmen**: Kanal = CAN-ID, Nutzlast =
+CAN-Daten. Zurueckgemeldet wird nur die feste ID-Liste
+
+```
+0x0422  0x0425  0x0101  0x0331  0x0668        (0x0300 wird uebersprungen)
+```
+
+andere IDs (z. B. 0x404/0x405 der BMS) bleiben ungemeldet — **generisch wird
+der Empfang erst mit dem optionalen Patch C1** (§10.6). Weitergeleitete
+Frames werden **nicht** mehr an die App-Handler im selben Pfad verteilt
+(`0x0801D35A` liefert dann 0); C1 hebt genau das auf.
+
+### 10.3 Sequenz und Quittungen
+
+* Ein Steuerrahmen **Typ 0xFE** setzt den Zaehler `0x20000BAC` auf 0
+  (`0x0801D744`). Danach muss die Sequenz im Byte 0 mit 0, 1, 2, ... laufen.
+* Ein Rahmen mit falscher Sequenz wird verworfen und mit einem **Typ-0xFF**
+  Rahmen beantwortet (`0x0801D1DA(0xFF,...)`).
+* Erfolgreiche Sende-Rahmen werden **nicht** quittiert -- nur Fehler kommen
+  zurueck. Das Tool synchronisiert bei einem 0xFF-Rahmen neu.
+
+### 10.4 Werkzeug
+
+```
+python3 tools/can_hid.py info
+python3 tools/can_hid.py send 0x201 01 02 03 04        # ein CAN-Frame
+python3 tools/can_hid.py send 0x201 01 02 --repeat 10
+python3 tools/can_hid.py batch --frame "0x201 01 02" --frame "0x202 03 04"
+python3 tools/can_hid.py listen 5                      # CAN-Frames mitlesen
+python3 tools/can_hid.py selftest                      # Rahmencodes
+python3 tools/emu.py canbridge                         # Ende-zu-Ende ohne HW
+```
+
+Emulator-Nachweis (`canbridge`): Tool-Rahmen Typ 1 -> FIFO B, Typ-0-Batch ->
+2 Bloecke; Sende-FIFO -> `TI0R=0x40200001` (= `0x201<<21 | TXRQ`), `TDT0R=4`,
+`TDL0R=0xDDCCBBAA`; CAN-ID 0x0425 -> HID-Rahmen mit Kanal 0x0425 und den
+Daten, 0x0404 -> keine Weiterleitung.
+
+### 10.5 Stand / offene Punkte
+
+* **[V]** Rahmenformate, ID-Filter, FIFO B, die Sende-Registerfolge
+  (`0x0801D158` -> `0x0801B7A0` -> `0x0801B07E`) und die HID-Weiterleitung
+  (`0x0801B066` -> `0x0801D35A` -> `0x0801D1DA`) sind im Emulator mit dem
+  ausgelieferten Tool-Code belegt (`emu.py canbridge`).
+* **[R]** Auf echter Hardware steht der Nachweis noch aus (wie beim
+  Reset-Trigger, siehe 8.2). Der Port-Task leert FIFO B nur, wenn die
+  Port-Abfrage `0x800A728(*(0x20000BB0))` 1 liefert (0x0801D948); das ist
+  normaler Laufzeit-Zustand der App und wird hier nicht mitsimuliert.
+* Der TX-done-ISR `0x0801B16A` zieht ueber `0x0801D196`/`0x0801D158`
+  ebenfalls aus FIFO B, unterliegt aber der Scheduler-Zustandsmaschine
+  (`0x20000ABC` = "in flight", Pending-Maske `0x20000AE8`).
+
+## 11. Generischer CAN-Empfang (optionaler Patch C1) [V]
+
+Der Empfangspfad aus §10.2 hat eine feste ID-Whitelist. Soll **jedes**
+empfangene CAN-Frame am Host ankommen, ist ein Firmware-Patch noetig; das
+Patch-Werkzeug `tools/patch_bms.py` liefert ihn als **optionale** Ergaenzung
+(Standard-Auswahl bleibt unveraendert):
+
+```
+python3 tools/patch_bms.py --can-sniffer          # P1..P4/P6/P7 + C1
+python3 tools/stm_display_fw.py flash data/stm32f105_bms_control.bin
+```
+
+### 11.1 Die drei Aenderungen
+
+| Adresse | Original | Neu | Wirkung |
+|---|---|---|---|
+| `0x0801D338` | `02 46 00 20 00 21 08 e0` | `01 20 70 47 00 bf 00 bf` | Filter `0x0801D338` wird zu `movs r0,#1; bx lr` -> ID-Pruefung entfaellt |
+| `0x0801D3C4` | `4f f0 00 08` (`mov r8,#0`) | `00 bf 00 bf` | `0x0801D35A` liefert kein 0 mehr -> **App-Handler-Dispatch laeuft weiter** |
+| `0x0801D3AE` | `09 d0` (`beq 0x801D3C4`) | `00 bf` | auch `0x300` wird gemeldet |
+
+Ohne die zweite Aenderung wuerde `0x0801D35A` fuer jedes Frame 0 liefern
+("verbraucht") und der CAN-Handler `0x0801AFC6` wuerde die Frames **nicht**
+mehr an die App ausliefern -- das Display saehe dann z. B. `0x201`/`0x555`
+nicht mehr. C1 haelt den Dispatch deshalb erhalten.
+
+### 11.2 Nachweis
+
+`python3 tools/emu.py canbridge` prueft in einem Durchlauf:
+
+* **Original**: `0x425` -> HID, `0x404` -> nicht gemeldet (Handler laeuft);
+* **C1**: `0x404`, `0x201`, `0x300` -> HID **und** App-Handler `0x080194D6`
+  bzw. `0x08019512`/`0x080167E4` laufen weiter.
+
+Ferner im Image geprueft: `patch_bms.py --can-sniffer` erzeugt
+`0xb5890bcf` als neue App-CRC, `emu.py` auf diesem Image meldet alle IDs
+(0x404/0x201/0x300/0x555/0x425) und fuehrt `0x404` weiter an den Handler.
+
+### 11.3 Grenzen
+
+* Jedes CAN-Frame erzeugt einen 64-Byte-HID-Report. Bei hoher Buslast (viele
+  hundert Frames/s) ist die Full-Speed-USB-Strecke der Engpass -- Frames
+  gehen dann verloren (die FIFO-Pushs schlagen fehl, ohne die App zu stoeren).
+* Der Patch ist **nicht** Teil der Standard-BMS-Firmware; ohne
+  `--can-sniffer` bleibt das Image wie bisher.

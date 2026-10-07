@@ -12,6 +12,7 @@ Nutzung:
     python3 tools/emu.py dispatch     # Kommando-Dispatcher des Bootloaders
     python3 tools/emu.py frame        # Rahmen-Parser des Bootloaders
     python3 tools/emu.py bmspatch     # BMS-Patch (0x555 folgt dem Display)
+    python3 tools/emu.py canbridge    # CAN-Bruecke: HID -> CAN und CAN -> HID
 
 Optionen: -t (Trace), -i <image> (statt data/stm32f105_conti.bin)
 """
@@ -2657,7 +2658,163 @@ def scenario_blsticky(emu: "Emu") -> int:
     return 0 if ok else 1
 
 
+def scenario_canbridge(emu: "Emu") -> int:
+    """CAN-Bruecke der App: HID -> CAN senden und CAN -> HID empfangen.
+
+    Alles mit echtem Firmware-Code:
+
+      Host -> CAN : 0x0801D75C (Typ 1) / 0x0801D65C (Typ 0) -> 0x0801D5C2
+                    -> Sende-FIFO B (0x20000BA4) -> 0x0801D158 -> 0x0801B7A0
+                    -> 0x0801B07E (CAN1 Mailbox 0: TI0R/TDT0R/TDL0R/TDH0R/TXRQ).
+      CAN -> Host : 0x0801B066 -> 0x0801AFC6 -> 0x0801D35A -> 0x0801D1DA/0x0801D1C0
+                    (Typ-1-Rahmen, Kanal = CAN-ID).
+
+    Die Rahmen selbst baut das ausgelieferte Tool (``tools/can_hid.py``).
+    """
+    sys.path.insert(0, str(ROOT / "tools"))
+    import can_hid as ch  # noqa: PLC0415
+
+    ok = True
+    _app_port_ready(emu)
+
+    # ---- 0) ID-Filter 0x0801D522: alles ausser 0x550 darf senden --------
+    emu.call(0x0801D522, r0=0x0201); a = emu.ret() & 0xFF
+    emu.call(0x0801D522, r0=0x0550); b = emu.ret() & 0xFF
+    print(f"[canbridge] Filter 0x0801D522: id=0x201 -> {a} (CAN), "
+          f"id=0x550 -> {b} (nur App-Kanal)")
+    ok = ok and a == 1 and b == 0
+
+    # ---- FIFOs anlegen --------------------------------------------------
+    for ptr, desc, base in ((APP_FIFO_A_PTR, 0x2000D000, 0x2000D100),
+                            (APP_FIFO_B_PTR, 0x2000D400, 0x2000D500),
+                            (0x20000B9C, 0x2000D800, 0x2000D900),
+                            (0x20000BB0, 0x2000DC00, 0x2000DD00),
+                            (0x20000BA8, 0x2000E000, 0x2000E100)):
+        emu.call(0x0800B190, r0=desc, r1=base, r2=8, r3=0x40)
+        emu.wr(ptr, desc)
+    emu.wr(APP_MSG_PTR, APP_MSG_OBJ)
+    emu.wr(0x2000880C + 4, 64, 2)
+    emu.wr(0x2000880C + 16, 0x000C)
+    emu.wr(0x2000093C, 0xFFFFFFFF)
+
+    def fifo_count(ptr: int) -> int:
+        desc = emu.rd(ptr)
+        return emu.rd(desc + 16, 1) if desc else -1
+
+    # ---- 1) Typ-1-Rahmen des Tools -> Sende-FIFO B ----------------------
+    emu.wr(APP_RX_SEQ, 0, 1)
+    rep = ch.build_can_frame(0x201, bytes([0xAA, 0xBB, 0xCC, 0xDD]), seq=0)
+    emu.mu.mem_write(APP_RX_BUF, rep)
+    emu.call(APP_PARSER, max_insns=200_000)
+    a1, b1 = fifo_count(APP_FIFO_A_PTR), fifo_count(APP_FIFO_B_PTR)
+    print(f"[canbridge] Typ-1 (0x201, 4 Byte) -> FIFO A={a1} FIFO B={b1}")
+    ok = ok and a1 == 0 and b1 == 1
+
+    # ---- 2) Typ-0-Batch des Tools (2 Frames) -> FIFO B +2 ---------------
+    batch = ch.build_can_batch([(0x202, bytes([0x01, 0x02, 0x03])),
+                                (0x203, bytes([0x04, 0x05]))], seq=1)
+    emu.mu.mem_write(APP_RX_BUF, batch)
+    emu.call(APP_PARSER, max_insns=200_000)
+    b2 = fifo_count(APP_FIFO_B_PTR)
+    print(f"[canbridge] Typ-0 (2 Frames) -> FIFO B={b2} (erwartet {b1 + 2})")
+    ok = ok and b2 == b1 + 2
+
+    # ---- 3) Sende-FIFO -> CAN1-Mailbox ---------------------------------
+    emu.wr(0x20000AD4, emu.rd(0x20000AD4, 1) | 1, 1)   # CAN bereit
+    emu.wr(0x20000ABC, 0xFFFF, 2)                       # Mailbox frei
+    emu.call(0x0801D158)
+    ti = emu.rd(0x40006580); tdt = emu.rd(0x40006584)
+    tdl = emu.rd(0x40006588); tdh = emu.rd(0x4000658C)
+    print(f"[canbridge] CAN1 Mailbox0: TI0R={ti:#010x} (erwartet "
+          f"{(0x201 << 21) | 1:#010x})  TDT0R={tdt}  TDL0R={tdl:#010x}  "
+          f"TDH0R={tdh:#010x}")
+    ok = ok and ti == ((0x201 << 21) | 1) and tdt == 4 \
+        and tdl == 0xDDCCBBAA and tdh == 0
+
+    # ---- 4) CAN -> Host: 0x425 wird gemeldet, 0x404 nicht ---------------
+    for cid, forward in ((0x425, True), (0x404, False)):
+        frames: List[bytes] = []
+
+        def cb(mu, address, size, ud, frames=frames):
+            if address == 0x0801D1C0:               # HID-Report abschicken
+                # 0x0801D1C0(r0 = Reportpuffer), r4 <- r0
+                ptr = mu.reg_read(UC_ARM_REG_R0)
+                frames.append(bytes(mu.mem_read(ptr, 64)))
+                mu.emu_stop()
+
+        h = emu.mu.hook_add(UC_HOOK_CODE, cb)
+        try:
+            _inject_can(emu, cid, bytes([0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
+                                         0x77, 0x88]))
+        finally:
+            emu.mu.hook_del(h)
+        got = ch.parse_can_frame(frames[0]) if frames else None
+        print(f"[canbridge] CAN {cid:#05x} -> HID: "
+              + (f"kanal={got[0]:#05x} daten={got[1].hex(' ')}" if got
+                 else "keine Weiterleitung"))
+        ok = ok and (got is not None) == forward
+        if forward and got:
+            ok = ok and got[0] == cid and got[1] == bytes(
+                [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88])
+
+    # Hinweis: Der Schritt oben ruft genau die Funktion auf, die der Port-Task
+    # 0x0801D900 bei freier Mailbox selbst aufruft (0x0801D954 -> 0x0801D158).
+    # Der TX-done-ISR 0x0801B16A zieht ueber 0x0801D196/0x0801D158 ebenfalls
+    # aus FIFO B, haengt aber an der Scheduler-Zustandsmaschine (0x20000ABC
+    # "in flight", Pending-Maske 0x20000AE8) und wird hier nicht mitsimuliert.
+
+    # ---- 5) Optionaler Patch C1 (--can-sniffer): generischer Empfang -----
+    # Byte-Sequenzen aus tools/patch_bms.py, Patch "C1". Frischer Emulator
+    # (eigener CAN-Zustand), damit die Scheduler-Reste aus Schritt 3 nicht
+    # stoeren.
+    e2 = Emu(emu.img)
+    _app_port_ready(e2)
+    for addr, old, new in (
+            (0x0801D338, bytes.fromhex("02 46 00 20 00 21 08 e0"),
+             bytes.fromhex("01 20 70 47 00 bf 00 bf")),
+            (0x0801D3C4, bytes.fromhex("4f f0 00 08"),
+             bytes.fromhex("00 bf 00 bf")),
+            (0x0801D3AE, bytes.fromhex("09 d0"), bytes.fromhex("00 bf"))):
+        cur = bytes(e2.mu.mem_read(addr, len(new)))
+        ok = ok and (cur == old or cur == new)
+        e2.mu.mem_write(addr, new)
+
+    def inject_capture(e: "Emu", cid: int, data: bytes):
+        frames: List[bytes] = []
+
+        def cb2(mu, address, size, ud, frames=frames):
+            if address == 0x0801D1C0:
+                ptr = mu.reg_read(UC_ARM_REG_R0)
+                frames.append(bytes(mu.mem_read(ptr, 64)))
+
+        h = e.mu.hook_add(UC_HOOK_CODE, cb2)
+        try:
+            hits = _inject_can(e, cid, data)
+        finally:
+            e.mu.hook_del(h)
+        return (frames[0] if frames else None), hits
+
+    # 0x404 wird nur EINMAL injiziert: die App verarbeitet ein Signal je
+    # Session nur einmal. DLC 8 noetig, sonst laeuft der Handler 0x080194D6
+    # nicht (Gate 0x0801C27C prueft die Signallaenge).
+    for cid in (0x404, 0x201, 0x300):
+        rep2, hits2 = inject_capture(e2, cid, bytes(
+            [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88]))
+        got2 = ch.parse_can_frame(rep2) if rep2 else None
+        dispatched = any(h[0] == "hand" for h in hits2)
+        print(f"[canbridge] Patch C1: CAN {cid:#05x} -> HID "
+              + (f"kanal={got2[0]:#05x}" if got2 else "keine Weiterleitung")
+              + f", App-Handler={dispatched}")
+        ok = ok and got2 is not None and got2[0] == cid
+        if cid == 0x404:
+            ok = ok and dispatched
+
+    print("[canbridge] ->", "OK" if ok else "MISMATCH")
+    return 0 if ok else 1
+
+
 SCENARIOS = {
+    "canbridge": scenario_canbridge,
     "blsticky": scenario_blsticky,    "blreadback": scenario_blreadback,
     "flashregs": scenario_flashregs,
     "blupload": scenario_blupload,

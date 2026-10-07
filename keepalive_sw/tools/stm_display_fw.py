@@ -817,6 +817,22 @@ hidraw-Geraete gehoeren root. Einmalig eine udev-Regel installieren:
 Danach das Geraet ab- und wieder anstecken."""
 
 
+# Die klassische hidapi-Bindung (``hid.device.read``, z. B. hidapi 0.15.0 auf
+# PyPI) liest bei ``timeout_ms <= 0`` ueber ``hid_read()`` -- das ist der
+# **blockierende** Aufruf: er wartet unbegrenzt auf einen Report. Im
+# Datenstrom sendet das Geraet aber nichts (Erfolg wird nicht quittiert),
+# ein ``read(64, 0)`` haengt also fuer immer. Am Stromanfang -- direkt nach
+# dem ersten ``0x36`` -- blieb das Werkzeug genau dort stehen. Ein Timeout
+# von 0 soll "kurz nachsehen" heissen, nicht "ewig warten"; deshalb wird auf
+# mindestens 1 ms aufgerundet und auf int gebracht (``read`` verlangt int).
+HID_POLL_MIN_MS = 1
+
+
+def _hid_timeout(timeout_ms: float) -> int:
+    """Lese-Timeout fuer hidapi: nie <= 0, immer int (sonst blockiert/hakt es)."""
+    return max(HID_POLL_MIN_MS, int(timeout_ms))
+
+
 def _open_hid(path):
     """HID-Geraet oeffnen - unterstuetzt beide verbreiteten Bindungen.
 
@@ -871,6 +887,7 @@ class Transport:
         aber kurz nicht; hidapi wirft dann OSError/HIDException. Ein zweiter
         Versuch nach kurzer Pause faengt das meist ab.
         """
+        timeout_ms = _hid_timeout(timeout_ms)
         try:
             data = self.dev.read(REPORT_SIZE, timeout_ms)
         except Exception as exc:                   # noqa: BLE001
@@ -919,7 +936,11 @@ class Transport:
         ``POLLERR``). Das darf den Strom nicht abbrechen, deshalb wird hier
         weder neu geoeffnet noch eine Ausnahme geworfen; die Zaehler
         ``soft_errors``/``stall_reopens``/``lost_reopens`` machen es sichtbar.
+
+        Das Timeout geht durch ``_hid_timeout()``: ein 0-Timeout waere in der
+        klassischen hidapi-Bindung der blockierende ``hid_read()``.
         """
+        timeout_ms = _hid_timeout(timeout_ms)
         try:
             data = self.dev.read(REPORT_SIZE, timeout_ms)
         except Exception as exc:                   # noqa: BLE001
@@ -1015,6 +1036,9 @@ class DryTransport:
     def recv(self, timeout_ms: int = 500):
         return None
 
+    def poll(self, timeout_ms: float = 0):
+        return None
+
     def close(self) -> None:
         return None
 
@@ -1040,7 +1064,7 @@ class Protocol:
                  wire: str = "app",
                  block_ack: Optional[bool] = None,
                  erase_timeout_ms: int = ERASE_TIMEOUT_MS,
-                 erase_chunk: int = 0x800,
+                 erase_chunk: int = 32768,
                  erase_pause_ms: int = 60) -> None:
         self.tp = tp
         self.verbose = verbose
@@ -1650,11 +1674,14 @@ class Protocol:
         if not self.block_ack:
             # Streaming: keine Einzelquittung. Anfallende Antworten nur
             # abholen, damit der Puffer leer bleibt; Fehlermeldungen melden.
+            # Dafuer ``poll()`` statt ``recv(0)``: ein Lesefehler ist hier
+            # normal (hidraw-Poll-Artefakt waehrend des Programmierens) und
+            # darf den Handle **nicht** mitten im Strom neu aufbauen.
             self.send_frame(payload)
             self.seq = self.seq + 1 if self.seq < 255 else 1
             self.addr += len(data)
             while True:
-                r = self.tp.recv(0)
+                r = self.tp.poll(0)
                 if not r:
                     break
                 pl = ack_payload(r)

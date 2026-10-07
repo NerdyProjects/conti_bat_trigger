@@ -19,6 +19,8 @@ Ergebnis des Patches: Das Display sendet die CAN-Botschaft `0x555`
 | `tools/stm_display_fw.py` | Flash-Werkzeug (USB-HID): flashen, prüfen, diagnostizieren |
 | `tools/emu.py` | Emulator (Unicorn): Patch- und Flash-Weg **ohne Hardware** nachvollziehen |
 | `tools/cebs_ble.py` | POC: BMS-Telemetrie (Strom/Spannung/SOC/Kapazität) per BLE auslesen |
+| `tools/can_hid.py` | CAN über USB-HID der App: Frames senden und mitlesen (siehe `PROTOCOL.md` §10) |
+| `tools/patch_bms.py --can-sniffer` | optionaler Patch C1: **generischer** CAN-Empfang, alle Frames ans HID (`PROTOCOL.md` §11) |
 | `tools/PROTOCOL.md` | Protokolldokumentation (Bootloader, Kommandos, Fallstricke) |
 | `tools/99-continental-ebike.rules` | udev-Regel für USB-Zugriff ohne `root` (Linux) |
 | `docs/` | Hintergrund: Patchliste, Firmware-Update-Analyse |
@@ -129,6 +131,7 @@ Bootloader und kann sofort erneut geflasht werden.
 | `kein Geraet gefunden` | Kabel/Port wechseln, Versorgung prüfen; udev-Regel installiert? `python3 tools/stm_display_fw.py info` |
 | `Bootloader konnte nicht aktiviert werden` | Die App antwortet nicht auf den Reset-Trigger → Gerät stromlos machen, dann erneut `./flash.sh` (Bootloader bleibt aktiv, solange die App-CRC nicht stimmt) |
 | `Sitzung liess sich nicht starten (0x10)` | Das Gerät hängt noch im Datenstrom des vorigen Laufs → ~10 s warten (eigener Timeout) oder Strom trennen |
+| Werkzeug bleibt direkt nach dem ersten `-> … \| 36 01 …` stehen (keine weitere Ausgabe) | Lese-Timeout 0 blockierte in der klassischen hidapi-Bindung (z. B. Wheel `hidapi 0.15.0`) → aktuelle `tools/stm_display_fw.py` verwenden (`PROTOCOL.md` §9.3.1) |
 | `App-CRC stimmt nicht` am Ende des Stroms | Rahmen verloren → erneut flashen, bei Wiederholung langsamer: `--stream-pace-ms 15` |
 | `mehr als 40x USB-Handle neu geoeffnet` | USB-Störung (Hub/Kabel) → anderes Kabel/Port, direkt am Rechner |
 | `Loeschen fehlgeschlagen (Status 1)` | Flash-Controller ist verriegelt (nach einem Fehlversuch) → **Strom trennen**, kurz warten, erneut flashen |

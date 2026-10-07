@@ -92,6 +92,36 @@ Byte 1–2 = Strom (`int16` LE, mA), Byte 3–4 = Spannung (`uint16` LE, mV),
 Byte 5 = SOC (%), Byte 6 = SOH (%, Vermutung), Byte 7–8 = RemainingCapacity
 (mAh), Byte 9–10 = FullChargeCapacity (mAh). Details siehe Modul-Docstring.
 
+### Display-Akku als CAN-Interface nutzen (USB-HID)
+
+Die Display-App ist über ihre normale USB-HID-Schnittstelle
+(`Continental eBike System`) auch eine kleine **CAN-Bruecke**: Frames senden
+und die von der App gemeldeten Frames mitlesen. Ein Frame ist genau ein
+64-Byte-HID-Report; Details (Adressen, Filter, Sequenz) stehen in
+`tools/PROTOCOL.md` §10.
+
+```bash
+python3 tools/can_hid.py info
+python3 tools/can_hid.py send 0x201 01 02 03 04        # einen CAN-Frame senden
+python3 tools/can_hid.py send 0x201 01 02 --repeat 10  # zyklisch senden
+python3 tools/can_hid.py batch --frame "0x201 01 02" --frame "0x202 03 04"
+python3 tools/can_hid.py listen 5                      # CAN-Frames mitlesen
+```
+
+* **Senden** geht fuer jede 11-Bit-ID **ausser `0x550`** (die Firmware
+  filtert an `0x0801D522` fehlerhaft); Nutzlast <= 8 Byte. `0x550` ist der
+  reine App-Nachrichtenkanal.
+* **Mitlesen** liefert bei Original-Firmware nur die fest verdrahteten IDs
+  `0x422 0x425 0x101 0x331 0x668`. Fuer **generischen Empfang** (jedes Frame)
+  die Firmware mit dem optionalen Patch C1 bauen und flashen:
+  ```bash
+  python3 tools/patch_bms.py --can-sniffer        # P1..P7 + C1, CRC neu
+  python3 tools/stm_display_fw.py flash data/stm32f105_bms_control.bin
+  ```
+  C1 haelt den App-Handler-Dispatch erhalten (Details: `tools/PROTOCOL.md` §11).
+* Offline pruefen (ohne Hardware): `python3 tools/emu.py canbridge` und
+  `python3 tools/can_hid.py selftest`.
+
 ### Flash-Inhalt prüfen (verify) und auslesen (dump)
 
 ```bash
