@@ -64,6 +64,7 @@ import de.larisch.cebsbattery.ble.BleBatteryClient
 import de.larisch.cebsbattery.ble.BleUiState
 import de.larisch.cebsbattery.ble.ConnState
 import de.larisch.cebsbattery.model.BatteryStatus
+import de.larisch.cebsbattery.model.formatDuration
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -479,21 +480,5 @@ private fun remainingTimeLabel(status: BatteryStatus?): String {
     return when (status.direction) {
         BatteryStatus.CurrentDirection.CHARGING -> stringResource(R.string.remaining_charging)
         else -> stringResource(R.string.value_unknown)
-    }
-}
-
-private fun formatDuration(seconds: Long): String {
-    val hours = seconds / 3600
-    val minutes = (seconds % 3600) / 60
-    return when {
-        // Ab vier Tagen sind Stundenangaben unhandlich.
-        hours >= 100 -> {
-            val days = hours / 24
-            val rest = hours % 24
-            if (rest > 0) "$days Tage $rest h" else "$days Tage"
-        }
-
-        hours >= 1 -> "$hours h $minutes min"
-        else -> "$minutes min"
     }
 }
