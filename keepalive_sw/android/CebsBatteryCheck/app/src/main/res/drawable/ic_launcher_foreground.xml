@@ -1,0 +1,26 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Akku-Kontakt -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M46,24h16v8h-16z" />
+
+    <!-- Akku-Gehaeuse -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,30h32a6,6 0 0 1 6,6v40a6,6 0 0 1 -6,6h-32a6,6 0 0 1 -6,-6v-40a6,6 0 0 1 6,-6z" />
+
+    <!-- Fuellstand -->
+    <path
+        android:fillColor="#4CAF50"
+        android:pathData="M38,52h32v26a4,4 0 0 1 -4,4h-24a4,4 0 0 1 -4,-4z" />
+
+    <!-- Restlicher Innenraum -->
+    <path
+        android:fillColor="#1B5E20"
+        android:pathData="M38,38h32v12h-32z" />
+</vector>

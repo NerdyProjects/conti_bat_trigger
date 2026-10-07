@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Akku-Check</string>
+    <string name="title">Akku-Check</string>
+
+    <string name="action_reconnect">Neu verbinden</string>
+    <string name="action_enable_bluetooth">Bluetooth einschalten</string>
+    <string name="action_grant">Berechtigung erteilen</string>
+
+    <string name="perm_rationale">Diese App braucht die Bluetooth-Berechtigung, um den Akku auszulesen.</string>
+    <string name="bluetooth_off">Bluetooth ist ausgeschaltet.</string>
+
+    <string name="label_soc">Ladezustand</string>
+    <string name="label_voltage">Spannung</string>
+    <string name="label_current">Strom</string>
+    <string name="label_power">Leistung</string>
+    <string name="label_remaining">Restkapazität</string>
+    <string name="label_full">Vollkapazität</string>
+    <string name="label_soh">SOH</string>
+    <string name="label_updated">Aktualisiert</string>
+    <string name="label_raw">Rohdaten 0x0a01</string>
+
+    <string name="state_idle">Bereit</string>
+    <string name="state_scanning">Suche Akku (CEBS) …</string>
+    <string name="state_connecting">Verbinde …</string>
+    <string name="state_discovering">Lese GATT-Baum …</string>
+    <string name="state_connected">Verbunden</string>
+    <string name="state_disconnected">Getrennt</string>
+    <string name="state_error">Fehler</string>
+
+    <string name="value_unknown">–</string>
+    <string name="hint_waiting">Warte auf Werte …</string>
+    <string name="hint_readonly">Es wird nur gelesen – der Akku wird nicht verändert.</string>
+</resources>

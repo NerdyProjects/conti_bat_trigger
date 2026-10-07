@@ -61,6 +61,20 @@ Byte 1–2 = Strom (`int16` LE, mA), Byte 3–4 = Spannung (`uint16` LE, mV),
 Byte 5 = SOC (%), Byte 6 = SOH (%, Vermutung), Byte 7–8 = RemainingCapacity
 (mAh), Byte 9–10 = FullChargeCapacity (mAh). Details siehe Modul-Docstring.
 
+### Akku-Check als Android-App
+
+Dieselben Daten als Handy-App für einen schnellen Akkucheck:
+`android/CebsBatteryCheck`. Verbindet beim Start automatisch (Scan nach Name
+`CEBS`), zeigt Ladezustand/Spannung/Strom/Leistung/Kapazität groß an und
+liest ausschließlich – es wird nie etwas geschrieben.
+
+```bash
+cd android/CebsBatteryCheck
+./gradlew :app:assembleDebug     # oder :app:installDebug mit angeschlossenem Gerät
+```
+
+Details: `android/CebsBatteryCheck/README.md`.
+
 ### Display-Akku als CAN-Interface nutzen (USB-HID)
 
 Die Display-App ist über ihre normale USB-HID-Schnittstelle
