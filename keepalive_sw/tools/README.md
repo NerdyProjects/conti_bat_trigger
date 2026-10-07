@@ -118,10 +118,35 @@ Ablauf (dauert etwa eine Minute):
 [stream] 229376 Bytes = 1+4095 Rahmen a 56 Byte        (Fortschritt, ~20 s)
 [stream] Endquittung 0x76 -- Schreibzeiger steht exakt auf 0x08040000.
 [upload] App-CRC stimmt (Status 0) -- Bereich vollstaendig und konsistent.
+[upload] Sitzung beendet (0x3E 0x80) -- die Applikation startet davon nicht:
+         0x3E 0x80 ist KEIN Reset, sondern armt nur einen Zaehler (5000, der
+         eigene Rahmen zaehlt schon mit -> 4999), den der Bootloader um eins je
+         WEITEREM empfangenen USB-Rahmen verringert (kein Zeitgeber). Danach
+         senden wir nichts mehr -- es passiert also nichts, auch kein Reset in
+         "dmesg" (tools/emu.py finishtimer). Und selbst ein Reset dort waere
+         ein Software-Reset und fuehrt per Firmware-Logik wieder in den
+         Bootloader (RCC_CSR.SFTRSTF, tools/emu.py bootdecision).
+         -> Akku/Display kurz stromlos machen (Stecker ziehen und wieder
+            anstecken) -- nur dieser Pin-Reset startet die Applikation.
+[flash] Flash fertig: Image geschrieben und App-CRC (Status 0) bestaetigt.
+[flash] Kein Auto-Reset in die Applikation (siehe Reset-Meldung oben, PROTOCOL.md 9.7).
+[flash] -> Jetzt Akku/Display kurz stromlos machen (USB-Stecker abziehen und
+[flash]    wieder anstecken). Ich warte bis zu 20 s darauf ...
 [flash] fertig -- Applikation laeuft.
 ```
 
-Wichtig: Geht etwas schief, wird **kein** Reset ausgelöst – das Gerät bleibt im
+**Wichtig – Power-Cycle nach dem Flashen:** Nach dem Upload macht der
+Bootloader von sich aus **keinen** Reset (auch nichts in `dmesg`): `0x3E 0x80`
+armt nur einen Zähler, der um *eins je weiterem empfangenen USB-Rahmen* sinkt –
+danach kommt kein Rahmen mehr. Und selbst dieser Reset (Software-Reset) führt
+per Firmware-Logik *wieder in den Bootloader*, nicht in die Applikation.
+Deshalb nach dem Flashen den Stecker kurz abziehen und wieder anstecken
+(Pin-Reset) — erst das startet die Applikation. Beides mit dem echten
+Bootloader-Code nachgewiesen: `python3 tools/emu.py finishtimer` und
+`python3 tools/emu.py bootdecision` (siehe `PROTOCOL.md` §9.7). Das Werkzeug
+sagt das nach dem Upload und wartet 20 s auf die Applikation.
+
+Geht etwas schief, wird **kein** Reset ausgelöst – das Gerät bleibt im
 Bootloader und kann sofort erneut geflasht werden.
 
 ## 4. Wenn es klemmt
@@ -135,7 +160,9 @@ Bootloader und kann sofort erneut geflasht werden.
 | `App-CRC stimmt nicht` am Ende des Stroms | Rahmen verloren → erneut flashen, bei Wiederholung langsamer: `--stream-pace-ms 15` |
 | `mehr als 40x USB-Handle neu geoeffnet` | USB-Störung (Hub/Kabel) → anderes Kabel/Port, direkt am Rechner |
 | `Loeschen fehlgeschlagen (Status 1)` | Flash-Controller ist verriegelt (nach einem Fehlversuch) → **Strom trennen**, kurz warten, erneut flashen |
-| App startet nach dem Flash nicht | CRC prüfen: `python3 tools/stm_display_fw.py verify firmware/stm32f105_bms_control.bin` (ohne Hardware: `--offline`) |
+| App startet nach dem Flash nicht / **kein Reset in `dmesg`** | **Normal:** `0x3E 0x80` macht ohne weitere Rahmen gar keinen Reset (Zähler sinkt nur je Rahmen), und ein Software-Reset kehrt in den Bootloader zurück (`PROTOCOL.md` §9.7) → Stecker kurz abziehen und wieder anstecken (Pin-Reset) |
+| `Applikation (noch) nicht sichtbar` nach dem Flash | dito: Power-Cycle ausführen; der Flash selbst war erfolgreich (App-CRC Status 0) |
+| App startet auch nach dem Power-Cycle nicht | CRC prüfen: `python3 tools/stm_display_fw.py verify firmware/stm32f105_bms_control.bin` (ohne Hardware: `--offline`); bei Status 1 erneut flashen |
 
 Einzelne Zeilen `[usb] Geraet haengt weiter am Bus -- Knoten neu oeffnen ...`
 sind normal: Bei Flash-Befehlen schaltet die Firmware den Systemtakt um, der

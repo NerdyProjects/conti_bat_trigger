@@ -14,43 +14,6 @@ CONFIG_HW_VARIANT_OLED=y
 
 Die SW macht einen WiFi-AP mit einer Debug-Webschnittstelle auf. Die Zugangsdaten können unter wifi_ap.h konfiguriert werden.
 
-### ESP32-Firmware bauen
-
-```bash
-tools/build_esp32.sh                  # beide Varianten -> build_supermini/ und build_oled/
-tools/build_esp32.sh --variant oled   # nur eine Variante (supermini|oled)
-```
-
-Die Hardware-Variante steckt in `CONFIG_HW_VARIANT_{SUPERMINI,OLED}`. Das
-Skript legt je Variante eine eigene sdkconfig im Build-Verzeichnis an; die
-Projekt-`sdkconfig` bleibt unangetastet.
-
-### Update über WiFi (Web-OTA)
-
-Der ESP32 öffnet den AP `AkkuController` (Passwort `akku1234`). Rechner mit
-dem AP verbinden, dann:
-
-```bash
-tools/flash_ota.py                    # SuperMini (Standard)
-tools/flash_ota.py --variant oled     # OLED-Variante
-```
-
-Im Browser geht es auch: `http://192.168.4.1` → „OTA-Update hochladen"
-(`/update`).
-
-### Firmware per USB flashen
-
-Der ESP32-C3 hat einen USB-Bootloader im ROM, zum Flashen ist aber `esptool`
-nötig (aus der ESP-IDF-Umgebung oder im `PATH`):
-
-```bash
-tools/flash_esp32_usb.sh /dev/ttyACM0                    # SuperMini
-tools/flash_esp32_usb.sh /dev/ttyACM0 --variant oled     # OLED
-```
-
-`tools/build_dist.sh` baut STM32- und ESP32-Teil (beide Varianten) in ein
-Release-Paket (`--no-esp` überspringt den ESP32-Build).
-
 ### Display-Akku aktualisieren (ein Befehl)
 
 ```bash
@@ -58,8 +21,14 @@ python3 tools/stm_display_fw.py flash data/stm32f105_bms_control.bin
 ```
 
 Wartet auf das Gerät, holt die laufende Applikation per Software-Reset
-automatisch in den Bootloader, flasht die Applikationsregion und wartet auf
-den Neustart. Optionen: `--wait <Sekunden>` (Standard 120), `--region app|all`,
+automatisch in den Bootloader, flasht die Applikationsregion und wartet dann
+20 s auf die Applikation. Diese startet **nicht** von selbst: der Abschluss
+`0x3E 0x80` loest ohne weitere Rahmen gar keinen Reset aus und ein
+Software-Reset fuehrt per Firmware-Logik wieder in den Bootloader — daher nach
+dem Flashen Akku/Display kurz stromlos machen (Stecker ab- und wieder
+anstecken, Pin-Reset). Nachgewiesen mit `tools/emu.py finishtimer` bzw.
+`bootdecision`, Details in `tools/PROTOCOL.md` §9.7.
+Optionen: `--wait <Sekunden>` (Standard 120), `--region app|all`,
 `--no-reset` (nicht selbst springen), `-q` (weniger Ausgabe).
 
 Voraussetzungen: Python 3 mit `hidapi`, Schreibrechte auf `/dev/hidraw*`
@@ -153,18 +122,3 @@ python3 tools/stm_display_fw.py verify data/stm32f105_bms_control.bin --deep -y
   Lese-Befehl (10 Kommandos, alle schreiben/steuern; Antworten tragen nur
   Status). Die Record-Seite bei `0x08007800` ist die einzige auslesbare
   Flash-Adresse. Inhaltskontrolle erfolgt daher über `verify`.
-
-### Release-Paket bauen (`dist/`)
-
-`dist/` ist per `.gitignore` ausgenommen und wird aus den Repo-Quellen
-erzeugt:
-
-```bash
-tools/build_dist.sh
-```
-
-Ergebnis: `dist/cebs_display_bms_patch/` und `dist/cebs_display_bms_patch.zip`.
-Das Skript sammelt die Werkzeuge aus `tools/`, Doku und Firmware aus `data/`
-und legt sie passend ab. Die Paket-Wurzeldateien `patch.sh`, `flash.sh`,
-`requirements.txt` und die Paket-`README.md` liegen als Quellen ebenfalls in
-`tools/`.

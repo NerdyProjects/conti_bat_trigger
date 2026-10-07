@@ -84,7 +84,7 @@ Laenge/Daten. Beispiel `0x10` → `50 03 01 f4 03 e8`, `0x34` → `74 03 03 80 0
 | `0x34` | `0x08001514` | **Adresse setzen**: payload[1] Nibbles, payload[3..6] = 32-Bit **Big-Endian**-Adresse → `0x080017BE` **[V]** |
 | `0x36` | `0x08001614` | **Block schreiben**: Laenge **2..58**, payload[1]=Sequenz (muss `[0x20000038+0]` entsprechen, sonst Fehler `0x73`), payload[2..]=Daten; `len-2` Bytes werden an `0x20000038+4` programmiert, Zeiger += `len-2`, Sequenz +1 mit **Wrap 255 → 1**; setzt `[0x2000001C]`=1 (Datenmodus) **[V]** |
 | `0x37` | `0x080017EC` | **Sequencer-Reset**, Laenge **1** → Seq=1, Zeiger=0; ACK `77` **[V]** |
-| `0x3E` | `0x08001884` | **Finish**, Laenge **2**, Arg 0x00 oder 0x80. Arg 0x80 → keine Antwort; danach laeuft der BL in einen 5000-Tick-Timeout und macht **`SCB->AIRCR = 0x05FA0004`** (`0x08001B66`), wodurch die App startet **[V]** |
+| `0x3E` | `0x08001884` | **Finish**, Laenge **2**, Arg 0x00 oder 0x80. Arg 0x80 → keine Antwort; **beide Arme armieren nur einen Zaehler** (5000 in `0x20000042`), den der BL um **eins je weiterem empfangenen USB-Rahmen** verringert (`0x08000C04` → `0x0800190A`; **kein** Zeitgeber) und bei 0 `SCB->AIRCR = 0x05FA0004` (`0x08001B66`) schreibt. Ohne Folge-Rahmen passiert also nichts; der Reset fuehrt **nicht** in die Applikation -- siehe 9.7 |
 | sonst | `0x08000A46` | Fehler/NAK mit Fehlercode |
 
 Weitere Bausteine **[V]**:
@@ -115,6 +115,8 @@ präpariertem SRAM/Peripherie aufgerufen:
 | `blreadback` | **Lese-Befehl und CRC-Status**: `0x22` mit `0xF15B` liefert die 6 Byte aus `0x08007800` (mit `0xF15A` keine Daten), Record via `0x2E` schreiben und zuruecklesen, CRC-Status `0`/`1` fuer intaktes/geaendertes Image, `verify` und `verify --deep` (8 bzw. 13 Pruefungen) |
 | `blsession` | **Kompletter Upload**: `0x10(3)`→`0x37`→`0x34`→4096×`0x36`→`0x3E`; Zeiger endet exakt auf `0x08040000`, Flash-Inhalt identisch → **OK** |
 | `appreset` | `0x08017378(1)` / `0x08016E84(2)` → `AIRCR = 0x05FA0004` |
+| `bootdecision` | **Boot-Entscheidung**: `SFTRSTF` (Software-Reset, auch `0x3E 0x80`) → Bootloader; jeder andere Reset → Applikation (jeweils mit/ohne gueltige App-CRC) |
+| `finishtimer` | **0x3E-Timer**: `0x3E 0x80` armt Zaehler 5000, der um 1 **je empfangenem Rahmen** sinkt; Reset (`AIRCR`) erst nach ~4999 Folge-Rahmen -- ohne die passiert nichts |
 | `trigger` | Dispatcher `0x08018D04` → Reset `0x08017378` (Nachricht-Id `0x304`) |
 | `caninject` | CAN-Frame in den echten Empfangshandler `0x0801B066` injizieren |
 | `uploadtool` | **Tool-Upload**: `stm_display_fw.Protocol.upload()` gegen `0x08000AAA` — 4100 Reports, 4096 Flash-Writes, Zeiger endet exakt auf `0x08040000`, Inhalt identisch |
@@ -123,7 +125,7 @@ präpariertem SRAM/Peripherie aufgerufen:
 
 Damit sind Rahmenformat, Kommandocodes, die **komplette Session** und der
 Abschluss **bestätigt**.
-Aufruf: `python3 tools/emu.py {crc,dispatch,frame,setaddr,writeblk,appreset,trigger,caninject,blprobe,blsession,bmspatch} [-t] [-i <image>]`
+Aufruf: `python3 tools/emu.py {crc,dispatch,frame,setaddr,writeblk,appreset,bootdecision,finishtimer,trigger,caninject,blprobe,blsession,bmspatch} [-t] [-i <image>]`
 `blsession` akzeptiert optional eine Bytezahl (Standard `0x1000`):
 `python3 tools/emu.py blsession 0x38000`.
 
@@ -648,6 +650,64 @@ Empfohlener Ablauf bei diesem Bild:
 2. `python3 tools/stm_display_fw.py info` (Bootloader muss erscheinen),
 3. `python3 tools/stm_display_fw.py flash data/stm32f105_bms_control.bin --region app`
    -- Erase, Buendel mit Wiederholungen, CRC-Endkontrolle, Reset.
+
+### 9.7 Nach dem Flashen: nur ein Power-Cycle startet die Applikation [V]
+
+**Zwei Gruende, warum nach dem Upload nichts passiert:**
+
+**1. `0x3E 0x80` macht von sich aus gar keinen Reset.** Der Rahmen ist korrekt
+(Laenge 2, Arg `0x80`, Handler `0x08001884` akzeptiert ihn), aber er *armiert
+nur einen Zaehler*: `5000` nach `0x20000042` (`0x080018A6/AC`). Verringert wird
+er im Rahmen-Empfangspfad -- `0x08000BD4`..`0x08000C04` (Tail jeder
+Rahmenverarbeitung) ruft `0x0800190A`, das `[0x20000042]` um **eins je
+empfangenem USB-Rahmen** dekrementiert (Voraussetzung: `[0x20000040] == 1`,
+das setzt der Flash-Pfad). Der `0x3E`-Rahmen selbst zaehlt dabei mit, der
+Zaehler steht danach also auf `4999`. Es ist **kein Zeitgeber**: das offizielle
+Host-Tool hat den Reset offenbar „leergepollt". Unser Werkzeug sendet nach
+`0x3E` keinen einzigen Rahmen mehr -- der Zaehler bleibt bei 4999 stehen, es
+gibt **keinen Reset** und damit auch keine USB-Neuanmeldung in `dmesg`.
+
+**2. Und selbst dieser Reset wuerde die Applikation nicht starten.** Er ist ein
+Software-Reset (`AIRCR`/`SYSRESETREQ`) und setzt `RCC_CSR.SFTRSTF`; genau dann
+bleibt die Firmware im Bootloader (siehe Bootablauf oben):
+
+| Reset-Ursache | `0x080019F0` | Ergebnis |
+|---|---|---|
+| **nur `SFTRSTF`** (bit 28: Software-Reset, auch `0x3E`/`AIRCR`) | 0 | `0x08001AAA` = **Bootloader** (Update-Modus) |
+| alles andere (Pin, Power-On, IWDG, WWDG, Low-Power) | 1 | `0x08001AC4` -> `0x08001A3C` = **Sprung in die Applikation** (`MSP` aus `0x08008000`, Reset-Vektor aus `0x08008004`) |
+
+Beide Wege verlangen zusaetzlich eine **gueltige App-CRC** (`0x08001A02`,
+sonst bleibt es beim Bootloader). Genau das ist auch der Grund, warum
+`NVIC_SystemReset` in der App *immer* im Bootloader landet (Abschnitt 8).
+
+**Folge fuer das Werkzeug:** es gibt **keinen Befehl**, der die Applikation
+startet. Nach dem Flashen muss das Geraet kurz stromlos gemacht werden
+(Stecker ziehen und wieder anstecken = Pin-Reset); dann springt der Bootloader
+in die neue Applikation. Das Werkzeug sagt das nach dem Upload und wartet 20 s
+auf die Enumeration der App (`APP_START_HINT` in `stm_display_fw.py`).
+
+Emulatorbeweise mit dem **echten** Bootloader-Code:
+
+```
+python3 tools/emu.py finishtimer
+[fin] [ok  ] 0x3E 0x80 armt den Zaehler (5000, minus den eigenen Rahmen)   Zaehler=4999
+[fin] [ok  ] Zaehler sinkt um 1 je empfangenem Rahmen (nach 100 Rahmen)   Zaehler=4899
+[fin] [ok  ] Reset erst nach ~4999 weiteren Rahmen   nach 4999 Rahmen: AIRCR=0x05fa0004
+[fin] [ok  ] Reset ist ein Software-Reset (SYSRESETREQ, fuehrt in den BL)   AIRCR=0x05fa0004
+[fin] Ohne weitere Rahmen nach 0x3E gibt es also gar keinen Reset.
+
+python3 tools/emu.py bootdecision
+[boot] [ok  ] PINRSTF (Stecker/Strom)  -> Zweig App-Start
+[boot] [ok  ] PORRSTF (Power-On)       -> Zweig App-Start
+[boot] [ok  ] SFTRSTF (SW-Reset, 0x3E) -> BOOTLOADER bleibt aktiv
+[boot] [ok  ] SFTRSTF + CRC falsch     -> BOOTLOADER bleibt aktiv
+[boot] [ok  ] PINRSTF + CRC falsch     -> BOOTLOADER bleibt aktiv
+[boot] Es gibt keinen Befehl, der die Applikation startet -- ein Software-Reset
+[boot] (auch 0x3E 0x80) laeuft per Firmware-Logik wieder in den Bootloader.
+```
+
+Damit ist die frueher dokumentierte Annahme ("`0x3E 0x80` ... wodurch die App
+startet") widerlegt.
 
 
 ## 10. CAN-Bruecke der App (HID <-> CAN) [V]

@@ -817,6 +817,29 @@ hidraw-Geraete gehoeren root. Einmalig eine udev-Regel installieren:
 Danach das Geraet ab- und wieder anstecken."""
 
 
+# Nach dem erfolgreichen Schreiben beendet ``0x3E 0x80`` die Sitzung. Der
+# Rahmen ist korrekt, aber: er **armt nur einen Zaehler** (5000, @0x20000042),
+# den der Bootloader um **eins je weiterem empfangenen USB-Rahmen** verringert
+# (0x08000C04 -> 0x0800190A; kein Zeitgeber!). Ohne weitere Rahmen passiert
+# also gar nichts (kein Reset in ``dmesg``). Und selbst ein Reset dort waere
+# ein Software-Reset, der per Firmware-Logik **wieder in den Bootloader**
+# laeuft (0x08001A92 liest RCC_CSR: SFTRSTF -> 0x08001AAA) statt in die App
+# (0x08001A3C). Nur ein Pin-/Power-On-Reset startet die Applikation.
+# Beides mit dem echten Bootloader-Code belegt: ``emu.py finishtimer`` und
+# ``emu.py bootdecision``.
+APP_START_HINT = """[upload] Sitzung beendet (0x3E 0x80) -- die Applikation startet \
+davon nicht:
+         0x3E 0x80 ist KEIN Reset, sondern armt nur einen Zaehler (5000, der
+         eigene Rahmen zaehlt schon mit -> 4999), den der Bootloader um eins je
+         WEITEREM empfangenen USB-Rahmen verringert (kein Zeitgeber). Danach
+         senden wir nichts mehr -- es passiert also nichts, auch kein Reset in
+         "dmesg" (tools/emu.py finishtimer). Und selbst ein Reset dort waere
+         ein Software-Reset und fuehrt per Firmware-Logik wieder in den
+         Bootloader (RCC_CSR.SFTRSTF, tools/emu.py bootdecision).
+         -> Akku/Display kurz stromlos machen (Stecker ziehen und wieder
+            anstecken) -- nur dieser Pin-Reset startet die Applikation."""
+
+
 # Die klassische hidapi-Bindung (``hid.device.read``, z. B. hidapi 0.15.0 auf
 # PyPI) liest bei ``timeout_ms <= 0`` ueber ``hid_read()`` -- das ist der
 # **blockierende** Aufruf: er wartet unbegrenzt auf einen Report. Im
@@ -1737,9 +1760,18 @@ class Protocol:
     def cmd_finish(self) -> None:
         """0x3E = Abschluss (Payload-Laenge 2, Arg 0x00 oder 0x80).
 
-        Arg 0x80 -> keine Antwort; der Bootloader laeuft danach in seinen
-        Timeout und macht einen Software-Reset (SCB->AIRCR = 0x05FA0004),
-        wodurch die App startet. Arg 0x00 antwortet mit 0x7E.
+        Arg 0x80 -> keine Antwort; Arg 0x00 antwortet mit ``0x7E``. **Beide
+        armen nur einen Zaehler** (5000, ``0x20000042``), den der Bootloader im
+        Rahmen-Empfangspfad (``0x08000C04`` -> ``0x0800190A``) um eins je
+        *weiterem* empfangenen USB-Rahmen verringert -- kein Zeitgeber. Bei 0
+        schreibt er ``SCB->AIRCR = 0x05FA0004`` (``0x08001B66``).
+
+        Das ist ein **Software-Reset** und startet die Applikation *nicht*: der
+        Reset-Handler (``0x08000314`` -> ``0x08001A92``) wertet ``RCC_CSR`` aus,
+        ``SFTRSTF`` fuehrt zurueck in den Bootloader (``0x08001AAA``); in die
+        App (``0x08001A3C``) springt er nur nach einem Pin-/Power-On-Reset mit
+        gueltiger App-CRC. Siehe ``APP_START_HINT``, ``emu.py finishtimer`` und
+        ``emu.py bootdecision``.
         """
         self.send_frame(bytes([0x3E, 0x80]))
 
@@ -1762,7 +1794,7 @@ class Protocol:
                   "         Tool loescht dann vorher.")
             raise IOError("CRC-Pruefung nach dem Schreiben fehlgeschlagen")
         self.cmd_finish()
-        print("[upload] fertig, Reset ausgeloest.")
+        print(APP_START_HINT)
 
     def _stream_frame(self, blk: bytes, first: bool) -> None:
         """Einen Stromrahmen senden -- bei Schreibfehler Handle erneuern.
@@ -2267,7 +2299,7 @@ class Protocol:
                   "         Tool loescht dann vorher.")
             raise IOError("CRC-Pruefung nach dem Schreiben fehlgeschlagen")
         self.cmd_finish()
-        print("[upload] fertig, Reset ausgeloest.")
+        print(APP_START_HINT)
 
 
 # --------------------------------------------------------------------------
@@ -2559,17 +2591,27 @@ def main(argv: Optional[List[str]] = None) -> int:
         finally:
             tp.close()
 
-        print("[flash] warte auf Neustart der Applikation ...")
+        print("[flash] Flash fertig: Image geschrieben und App-CRC (Status 0) "
+              "bestaetigt.")
+        print("[flash] Kein Auto-Reset in die Applikation (siehe Reset-Meldung "
+              "oben, PROTOCOL.md 9.7).")
+        print("[flash] -> Jetzt Akku/Display kurz stromlos machen (USB-Stecker "
+              "abziehen und")
+        print("[flash]    wieder anstecken). Ich warte bis zu 20 s darauf ...",
+              flush=True)
         t0 = time.time()
         while time.time() - t0 < 20.0:
             if find_app(verbose=False):
                 print("[flash] fertig -- Applikation laeuft.")
                 return 0
             time.sleep(0.5)
-        print("[flash] Applikation ist nicht aufgetaucht; das Geraet bleibt "
-              "dann im Bootloader\n"
-              "        (z.B. wenn die Applikations-CRC nicht stimmt) und kann "
-              "einfach erneut\n        geflasht werden.")
+        print("[flash] Applikation (noch) nicht sichtbar. Der Flash-Vorgang "
+              "selbst war\n"
+              "        erfolgreich (App-CRC Status 0); das Geraet bleibt im "
+              "Bootloader, bis es\n"
+              "        kurz stromlos war. Danach laeuft die neue Applikation. "
+              "Ohne Power-Cycle\n        kann auch sofort erneut geflasht "
+              "werden.")
         return 0
 
     if args.cmd == "info":

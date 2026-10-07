@@ -418,6 +418,128 @@ def scenario_appreset(emu: Emu) -> int:
     return 0 if ok else 1
 
 
+BOOT_DECIDE = 0x08001A92      # 0x08000314 (Reset-Handler) -> App ODER Bootloader
+BOOT_TO_APP = 0x08001A3C      # Sprung in die Applikation (MSP/Reset-Vektor)
+BOOT_STAY = 0x08001AAA        # Bootloader-/Update-Modus initialisieren
+BOOT_APP_BRANCH = 0x08001AC4  # Zweig "App-CRC ok -> 0x08001A3C"
+BL_FINISH_CNT = 0x20000042    # Zaehler, den 0x3E 0x80 auf 5000 setzt (Halfword)
+BL_FINISH_EN = 0x20000040     # +0: 1 = Zaehler laeuft (setzt der Flash-Pfad)
+
+
+def scenario_bootdecision(emu: Emu) -> int:
+    """Boot-Entscheidung 0x08001A92 -- wann startet die Applikation?
+
+    ``0x08000314`` (Reset-Handler) ruft genau einmal ``0x08001A92``. Der liest
+    ueber ``0x08001B7A`` die Reset-Ursache aus ``RCC_CSR``:
+
+    * **nur SFTRSTF** (bit 28, Software-Reset via ``AIRCR``/``SYSRESETREQ``)
+      -> ``0x08001AAA`` = Bootloader bleibt aktiv,
+    * jeder andere Reset (PIN/POR/IWDG/WWDG/LPWR) -> ``0x08001AC4`` ->
+      ``0x08001A3C`` = Sprung in die Applikation, **wenn** die App-CRC stimmt
+      (sonst ``0x08001AAA``).
+
+    Folge: ``0x3E 0x80`` (und jeder andere Software-Reset) kann die Applikation
+    **nicht** starten -- nach dem Flashen ist ein Power-Cycle noetig.
+    """
+    names = {BOOT_TO_APP: "SPRUNG IN DIE APP", BOOT_APP_BRANCH: "Zweig App-Start",
+             BOOT_STAY: "BOOTLOADER bleibt aktiv"}
+
+    def decision(csr: int, valid_crc: bool = True) -> str:
+        e = Emu(emu.img)
+        if not valid_crc:
+            e.wr(0x0803FFFC, 0xDEADBEEF, 4)
+        e.wr(0x40021024, csr, 4)         # RCC_CSR: Reset-Ursache vorgeben
+        e.stop_pcs.update(names)
+        e.call(BOOT_DECIDE, max_insns=2_000_000)
+        pc = e.mu.reg_read(UC_ARM_REG_PC)
+        return names.get(pc, f"unbekannt ({pc:#010x})")
+
+    cases = [
+        ("PINRSTF (Stecker/Strom)", 0x04000000, True, BOOT_APP_BRANCH),
+        ("PORRSTF (Power-On)", 0x08000000, True, BOOT_APP_BRANCH),
+        ("SFTRSTF (SW-Reset, 0x3E)", 0x10000000, True, BOOT_STAY),
+        ("SFTRSTF + CRC falsch", 0x10000000, False, BOOT_STAY),
+        ("PINRSTF + CRC falsch", 0x04000000, False, BOOT_STAY),
+    ]
+    ok = True
+    for label, csr, valid, want in cases:
+        got = decision(csr, valid)
+        hit = got == names[want]
+        ok = ok and hit
+        print(f"[boot] [{'ok  ' if hit else 'FEHL'}] {label:24} -> {got}")
+    print("[boot] Es gibt keinen Befehl, der die Applikation startet -- ein "
+          "Software-Reset\n[boot] (auch 0x3E 0x80) laeuft per Firmware-Logik "
+          "wieder in den Bootloader.")
+    print("[boot] ->", "OK" if ok else "MISMATCH")
+    return 0 if ok else 1
+
+
+def scenario_finishtimer(emu: Emu) -> int:
+    """Der 0x3E-Timer: wann macht der Bootloader den Reset wirklich?
+
+    ``0x3E 0x80`` setzt nur einen Zaehler auf **5000** (``0x20000042``) und
+    antwortet nicht. Verringert wird er im Rahmen-Empfangspfad
+    (``0x08000C04`` -> ``0x0800190A``) um **eins je empfangenem USB-Rahmen** --
+    es ist **kein** Zeitgeber. Das Werkzeug sendet nach ``0x3E`` nichts mehr,
+    deshalb bleibt der Zaehler stehen und es gibt keinen Reset (auch nichts in
+    ``dmesg``). Erst nach ~4999 weiteren Rahmen schreibt der Bootloader
+    ``AIRCR = 0x05FA0004`` -- ein Software-Reset, der per Firmware-Logik
+    wieder in den Bootloader fuehrt (siehe ``bootdecision``).
+    """
+    e, _fm = _blflash_emu(None, False, emu.img)
+    state = {"reply": False}
+
+    def feed(payload: bytes) -> None:
+        frame = bytes([len(payload)]) + payload
+        e.mu.mem_write(BL_RAW_RX, frame + bytes(0x40 - len(frame)))
+        e.wr(BL_TXDONE, 0, 1)
+        e.wr(BL_FSTATE70 + 1, 1 if state["reply"] else 0, 1)
+        e.wr(BL_MODE + 1, 1, 1)
+        rec = e.rec                                    # type: ignore[attr-defined]
+        if isinstance(rec.get("tx"), list):
+            rec["tx"].clear()                          # type: ignore[union-attr]
+        e.call(0x08000AAA, max_insns=200_000)
+        state["reply"] = bool(rec.get("tx"))           # type: ignore[union-attr]
+
+    ok = True
+
+    def check(name: str, cond: bool, extra: str = "") -> None:
+        nonlocal ok
+        ok = ok and bool(cond)
+        print(f"[fin] [{'ok  ' if cond else 'FEHL'}] {name}"
+              f"{'   ' + extra if extra else ''}")
+
+    feed(bytes([0x10, 0x03]))                 # Sitzung (wie das Werkzeug)
+    e.wr(BL_FINISH_EN, 1, 1)                  # Zustand nach einem Flash-Befehl
+    e.wr(BL_FINISH_CNT, 0, 2)
+    feed(bytes([0x3E, 0x80]))                 # der Rahmen des Werkzeugs
+    armed = e.rd(BL_FINISH_CNT, 2)
+    check("0x3E 0x80 armt den Zaehler (5000, minus den eigenen Rahmen)",
+          armed == 4999, f"Zaehler={armed}")
+
+    for _ in range(100):                      # Zaehler sank frueher je Rahmen
+        feed(bytes([0x22, 0xF1, 0x01]))
+    after100 = e.rd(BL_FINISH_CNT, 2)
+    check("Zaehler sinkt um 1 je empfangenem Rahmen (nach 100 Rahmen)",
+          after100 == armed - 100, f"Zaehler={after100}")
+
+    e.aircr = None
+    frames = 100
+    while e.aircr is None and frames < 6000:
+        feed(bytes([0x22, 0xF1, 0x01]))
+        frames += 1
+    check("Reset erst nach ~4999 weiteren Rahmen",
+          e.aircr is not None and 4980 <= frames <= 5010,
+          f"nach {frames} Rahmen: AIRCR="
+          f"{e.aircr:#010x}" if e.aircr else f"nach {frames} Rahmen: kein Reset")
+    check("Reset ist ein Software-Reset (SYSRESETREQ, fuehrt in den BL)",
+          bool(e.aircr) and ((e.aircr >> 16) == 0x05FA) and bool(e.aircr & 4),
+          f"AIRCR={e.aircr:#010x}" if e.aircr else "-")
+    print("[fin] Ohne weitere Rahmen nach 0x3E gibt es also gar keinen Reset.")
+    print("[fin] ->", "OK" if ok else "MISMATCH")
+    return 0 if ok else 1
+
+
 def scenario_trigger(emu: Emu) -> int:
     """Verifiziert den App-Nachrichtenpfad: Dispatcher 0x08018D04 ruft mit
     passendem Nachrichten-State den Reset-Handler 0x08017378 auf."""
@@ -2834,6 +2956,8 @@ SCENARIOS = {
     "setaddr": scenario_setaddr,
     "writeblk": scenario_writeblk,
     "appreset": scenario_appreset,
+    "bootdecision": scenario_bootdecision,
+    "finishtimer": scenario_finishtimer,
     "trigger": scenario_trigger,
     "caninject": scenario_caninject,
 }
