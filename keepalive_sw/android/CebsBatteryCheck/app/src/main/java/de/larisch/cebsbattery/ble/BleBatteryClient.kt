@@ -63,6 +63,7 @@ class BleBatteryClient(private val context: Context) {
     private var retryDelayMs = FIRST_RETRY_MS
     private var pollTask: ScheduledFuture<*>? = null
     private var retryTask: ScheduledFuture<*>? = null
+    private var scanTimeoutTask: ScheduledFuture<*>? = null
 
     /** Idempotenter Start: verbindet bzw. sucht, falls noch nicht aktiv. */
     fun start() {
@@ -77,9 +78,9 @@ class BleBatteryClient(private val context: Context) {
     /** Trennt alles und sucht von vorn (Button "Neu verbinden"). */
     fun restart() {
         executor.execute {
+            stopScan()
             cancelPending()
             closeGatt()
-            scanning = false
             stopped = false
             retryDelayMs = FIRST_RETRY_MS
             _state.update {
@@ -89,13 +90,16 @@ class BleBatteryClient(private val context: Context) {
         }
     }
 
-    /** Beendet Scan/Verbindung; die App laeuft im Hintergrund weiter. */
+    /**
+     * Gibt Scan und Verbindung frei. Das Display ist damit wieder frei fuer
+     * andere Zentrale (z. B. den Rechner) und sendet wieder Werbung.
+     */
     fun stop() {
         executor.execute {
             stopped = true
+            stopScan()
             cancelPending()
             closeGatt()
-            scanning = false
             _state.update { it.copy(connState = ConnState.IDLE, message = null) }
         }
     }
@@ -145,7 +149,7 @@ class BleBatteryClient(private val context: Context) {
         scanner.startScan(null, settings, scanCallback)
 
         // Wenn das Geraet nicht auftaucht: Suche neu anwerfen.
-        executor.schedule(
+        scanTimeoutTask = executor.schedule(
             {
                 if (!stopped && scanning) {
                     stopScan()
@@ -505,6 +509,8 @@ class BleBatteryClient(private val context: Context) {
         cancelPoll()
         retryTask?.cancel(false)
         retryTask = null
+        scanTimeoutTask?.cancel(false)
+        scanTimeoutTask = null
         readInFlight = false
     }
 

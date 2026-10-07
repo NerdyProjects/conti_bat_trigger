@@ -11,6 +11,10 @@ für einen schnellen Akkucheck übersichtlich darstellt. Gegenstück zu
   Rohbytes der Charakteristik.
 * Liest **ausschließlich**. Es wird nie etwas geschrieben – der Akku bleibt
   unangetastet.
+* Gibt die Verbindung **frei, sobald die App in den Hintergrund geht**
+  (Home-Taste, Bildschirm aus) und verbindet beim Zurückkommen neu. Das ist
+  nötig, weil das Display nur eine BLE-Zentrale annimmt und dann auch keine
+  Werbung mehr sendet – sonst käme kein anderes Gerät mehr heran.
 
 ## Datenquelle
 
@@ -42,7 +46,7 @@ zweite läuft exponentiell nach (Zeitkonstante grob 10–20 s, Auflösung 10 mA)
 
 * **Restdauer** = Restkapazität / Entladestrom, gerechnet mit dem
   *Durchschnittsstrom* – der ist dafür die stabilere Basis. Angezeigt als
-  `X h Y min` (über 99 h nur als `> 99 h`); beim Laden steht dort `lädt`,
+  `X h Y min`, ab 100 h in Tagen (`5 Tage 18 h`); beim Laden steht dort `lädt`,
   in Ruhe `–`.
 * Das Vorzeichen steht für die Richtung: negativ = entladen, positiv = laden.
   Die Richtung gilt als „Ruhe", solange |I| < 30 mA ist – dann gibt es auch

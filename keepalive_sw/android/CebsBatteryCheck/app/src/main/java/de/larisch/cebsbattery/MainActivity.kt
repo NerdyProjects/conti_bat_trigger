@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -59,7 +60,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import de.larisch.cebsbattery.ble.BleBatteryClient
 import de.larisch.cebsbattery.ble.BleUiState
 import de.larisch.cebsbattery.ble.ConnState
@@ -70,13 +70,33 @@ import java.util.Locale
 
 class MainActivity : ComponentActivity() {
 
+    private val viewModel: BatteryViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             CebsTheme {
-                BatteryScreen()
+                BatteryScreen(viewModel)
             }
         }
+    }
+
+    /** Im Vordergrund verbinden. */
+    override fun onStart() {
+        super.onStart()
+        if (BleBatteryClient.hasPermissions(this) && BleBatteryClient.isBluetoothEnabled(this)) {
+            viewModel.connect()
+        }
+    }
+
+    /**
+     * Im Hintergrund die Verbindung freigeben: das Display nimmt nur eine
+     * Zentrale an (und sendet dann keine Werbung mehr), andere Geraete kaemen
+     * sonst nicht mehr heran. Beim Zurueckkommen verbindet onStart() neu.
+     */
+    override fun onStop() {
+        viewModel.disconnect()
+        super.onStop()
     }
 }
 
@@ -98,7 +118,7 @@ private fun CebsTheme(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun BatteryScreen(viewModel: BatteryViewModel = viewModel()) {
+private fun BatteryScreen(viewModel: BatteryViewModel) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
 
@@ -463,8 +483,17 @@ private fun remainingTimeLabel(status: BatteryStatus?): String {
 }
 
 private fun formatDuration(seconds: Long): String {
-    if (seconds >= 99 * 3600) return "> 99 h"
     val hours = seconds / 3600
     val minutes = (seconds % 3600) / 60
-    return if (hours > 0) "$hours h $minutes min" else "$minutes min"
+    return when {
+        // Ab vier Tagen sind Stundenangaben unhandlich.
+        hours >= 100 -> {
+            val days = hours / 24
+            val rest = hours % 24
+            if (rest > 0) "$days Tage $rest h" else "$days Tage"
+        }
+
+        hours >= 1 -> "$hours h $minutes min"
+        else -> "$minutes min"
+    }
 }
